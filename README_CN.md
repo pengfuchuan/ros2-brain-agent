@@ -4,7 +4,9 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[English](README.md)**
+**[English Version](README.md)**
+
+> 💡 提示：GitHub README 页面支持 [中英文切换](README.md)，点击上方链接可切换语言。
 
 ## 概述
 
