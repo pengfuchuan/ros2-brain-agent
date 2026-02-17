@@ -4,7 +4,16 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[中文文档](README_CN.md)**
+<p align="center">
+  <a href="#english">English</a> | <a href="#中文">中文</a>
+</p>
+
+---
+
+<a name="english"></a>
+
+<details open>
+<summary><b>🇺🇸 English</b></summary>
 
 ## Overview
 
@@ -31,13 +40,7 @@ ROS2 Brain Agent is an engineering-grade, governable, and extensible ROS2 Agent 
                 └────────────────────────┘
 ```
 
-### Voice Pipeline
-
-```
-ASR  →  Brain  →  TTS
-```
-
-## Features
+### Features
 
 - **Brain Layer**: Dialog management, LLM orchestration, memory system, tool routing
 - **Cerebellum Layer**: Skill execution, world state management, error recovery
@@ -48,22 +51,10 @@ ASR  →  Brain  →  TTS
   - Event Log (events.jsonl)
 - **Tool Governance**: Permission control, rate limiting, audit, dry-run mode
 - **Skill Framework**: Primitive/Skill/Task three-layer capability model
-- **Error Recovery**: Unified error code system, compensation actions, retry mechanism
-
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| `cmm_interfaces` | ROS2 msg/srv/action interface definitions |
-| `cmm_brain` | Brain layer core nodes (dialog, LLM, memory, tool router) |
-| `cmm_cerebellum` | Cerebellum layer skill services (world state, skill execution) |
-| `cmm_io` | Voice IO (ASR/TTS) |
 
 ## Quick Start
 
 ### Using Docker (Recommended)
-
-Docker provides a quick way to set up development and testing environment:
 
 ```bash
 # One-click build, start, and test
@@ -77,79 +68,24 @@ Docker provides a quick way to set up development and testing environment:
 
 # Enter container shell
 ./run_docker.sh shell
-
-# Other commands
-./run_docker.sh quick        # Quick unit tests
-./run_docker.sh integration  # Full integration test
-./run_docker.sh logs         # View container logs
-./run_docker.sh stop         # Stop container
-./run_docker.sh clean        # Clean up container and images
 ```
 
-#### Docker Commands Reference
-
-| Command | Description |
-|---------|-------------|
-| `./run_docker.sh build` | Build Docker image |
-| `./run_docker.sh start` | Start container |
-| `./run_docker.sh stop` | Stop container |
-| `./run_docker.sh shell` | Enter container shell |
-| `./run_docker.sh build_ws` | Build ROS2 workspace |
-| `./run_docker.sh test` | Run all tests |
-| `./run_docker.sh quick` | Quick unit tests |
-| `./run_docker.sh integration` | Full integration test |
-| `./run_docker.sh all` | One-click build, start, test |
-| `./run_docker.sh clean` | Clean up container and images |
-
-#### Using docker-compose
-
-```bash
-# Start
-docker-compose up -d
-
-# Enter container
-docker exec -it ros2-brain-agent bash
-
-# Stop
-docker-compose down
-```
-
-### Prerequisites (Without Docker)
-
-- ROS2 Humble or later
-- Python 3.10+
-- Nav2 (optional, for navigation)
-- MoveIt2 (optional, for manipulation)
-
-### Build
+### Build from Source
 
 ```bash
 # Create workspace
-mkdir -p ros2_ws/src
-cd ros2_ws/src
-
-# Clone repository
-git clone https://github.com/your-org/ros2-brain-agent.git
-
-# Build
+mkdir -p ros2_ws/src && cd ros2_ws/src
+git clone https://github.com/iampfc/ros2-brain-agent.git
 cd ..
 colcon build --symlink-install
-
-# Source
 source install/setup.bash
 ```
 
 ### Configuration
 
-1. Set LLM API credentials:
 ```bash
 export LLM_API_KEY="your-api-key"
-export LLM_BASE_URL="https://api.openai.com/v1"  # optional
-export LLM_MODEL="gpt-4o"  # optional
 ```
-
-2. Configure tools in `configs/tools.yaml`
-3. Configure providers in `configs/providers.yaml`
 
 ### Run
 
@@ -157,168 +93,25 @@ export LLM_MODEL="gpt-4o"  # optional
 # Launch all nodes
 ros2 launch cmm_brain brain_agent.launch.py
 
-# Launch with voice enabled
-ros2 launch cmm_brain brain_agent.launch.py enable_asr:=true enable_tts:=true
-
-# Launch in dry-run mode (no real robot actions)
+# Launch in dry-run mode
 ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
-
-# Or run individual nodes
-ros2 run cmm_brain dialog_manager_node
-ros2 run cmm_brain llm_orchestrator_node
-ros2 run cmm_brain tool_router_node
-ros2 run cmm_brain memory_node
-ros2 run cmm_cerebellum world_state_node
-ros2 run cmm_cerebellum skill_server_node
 ```
 
-## Project Structure
+## Packages
 
-```
-ros2-brain-agent/
-├── packages/
-│   ├── cmm_interfaces/      # ROS2 interfaces
-│   │   ├── msg/             # DialogEvent, WorldState, ToolCall, ErrorInfo
-│   │   ├── srv/             # WorldStateQuery, MemoryQuery, ToolExecute
-│   │   └── action/          # SkillExecute
-│   ├── cmm_brain/           # Brain layer
-│   │   ├── dialog_manager_node.py
-│   │   ├── llm_orchestrator_node.py
-│   │   ├── tool_router_node.py
-│   │   ├── memory_node.py
-│   │   ├── llm_provider.py
-│   │   ├── summarizer.py
-│   │   └── memory/
-│   │       ├── memory_store.py
-│   │       └── filesystem_store.py
-│   ├── cmm_cerebellum/      # Cerebellum layer
-│   │   ├── world_state_node.py
-│   │   ├── skill_server_node.py
-│   │   └── skills/
-│   │       ├── base_skill.py
-│   │       ├── nav_primitives.py
-│   │       ├── arm_primitives.py
-│   │       └── manipulation_skills.py
-│   └── cmm_io/              # IO layer
-│       ├── asr_client_node.py
-│       └── tts_client_node.py
-├── configs/
-│   ├── tools.yaml           # Tool registry
-│   ├── providers.yaml       # LLM providers
-│   └── logging.yaml         # Logging config
-├── launch/                  # Launch files
-├── memory/                  # Memory storage
-└── tests/                   # Test suites
-```
-
-## ROS2 Interface Reference
-
-### Messages
-
-- `DialogEvent.msg` - Dialog event for /dialog/events topic
-- `WorldState.msg` - Robot world state
-- `ToolCall.msg` - Tool call specification
-- `ErrorInfo.msg` - Unified error information
-
-### Services
-
-- `WorldStateQuery.srv` - Query robot world state
-- `MemoryQuery.srv` - Query session memory
-- `ToolExecute.srv` - Execute tool synchronously
-
-### Actions
-
-- `SkillExecute.action` - Execute skill with feedback
-
-## Topics
-
-| Topic | Type | Description |
-|-------|------|-------------|
-| `/dialog/user_input` | String | User input (text or JSON) |
-| `/dialog/llm_response` | String | LLM response (JSON) |
-| `/dialog/events` | DialogEvent | Dialog events |
-| `/tool/execute` | String | Tool execution requests |
-| `/tool/result` | String | Tool execution results |
-| `/skill/execute` | String | Skill execution requests |
-| `/world_state/current` | WorldState | Current world state |
-| `/world_state/update` | String | World state updates |
-
-## LLM Output Format
-
-LLM must output structured JSON:
-
-```json
-{
-  "assistant_text": "Response text to user",
-  "plan": [
-    {"step": 1, "action": "skill_name", "args": {...}}
-  ],
-  "tool_calls": [
-    {"tool": "tool_name", "args": {...}}
-  ],
-  "memory_write": [
-    {"key": "fact_key", "value": "fact_value", "type": "upsert"}
-  ]
-}
-```
-
-## Error Codes
-
-| Code | Category | Description |
-|------|----------|-------------|
-| `OBJECT_NOT_FOUND` | perception | Target object not detected |
-| `NAV_TIMEOUT` | navigation | Navigation timed out |
-| `LOCALIZATION_UNSTABLE` | navigation | Localization quality too low |
-| `GRASP_FAILED` | manipulation | Grasp action failed |
-| `SAFETY_ESTOP` | safety | Emergency stop activated |
-| `TOOL_NOT_FOUND` | system | Requested tool not registered |
-| `RATE_LIMITED` | system | Rate limit exceeded |
-| `INVALID_ARGS` | system | Invalid tool arguments |
+| Package | Description |
+|---------|-------------|
+| `cmm_interfaces` | ROS2 msg/srv/action interface definitions |
+| `cmm_brain` | Brain layer core nodes |
+| `cmm_cerebellum` | Cerebellum layer skill services |
+| `cmm_io` | Voice IO (ASR/TTS) |
 
 ## Testing
 
 ```bash
-# Run tests
-colcon test --packages-select cmm_brain
-
-# Test with simulation
-ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
+./run_docker.sh test           # All tests
+./run_docker.sh integration    # Integration test
 ```
-
-### Text Mode Demo
-
-```bash
-# Publish a test message
-ros2 topic pub /dialog/user_input std_msgs/String "{data: '{\"text\": \"Navigate to kitchen\", \"session_id\": \"test1\"}'}" --once
-```
-
-## Extending
-
-### Adding a New Tool
-
-1. Add tool definition to `configs/tools.yaml`:
-```yaml
-tools:
-  my_tool:
-    type: primitive
-    description: "My custom tool"
-    category: custom
-    json_schema:
-      type: object
-      properties:
-        param1: { type: string }
-      required: [param1]
-    permission_level: safe
-    timeout_sec: 30.0
-```
-
-2. Implement the skill in `cmm_cerebellum/skills/`
-3. Register in `skill_server_node.py`
-
-### Adding a New LLM Provider
-
-1. Add provider config to `configs/providers.yaml`
-2. Implement provider class extending `LLMProvider` in `llm_provider.py`
 
 ## Roadmap
 
@@ -328,10 +121,131 @@ tools:
 - [ ] Multi-robot support
 - [ ] Web dashboard
 
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines.
-
 ## License
 
 Apache-2.0
+
+<p align="center"><a href="#中文">切换到中文 →</a></p>
+
+</details>
+
+---
+
+<a name="中文"></a>
+
+<details>
+<summary><b>🇨🇳 中文</b></summary>
+
+## 概述
+
+ROS2 Brain Agent 是一个可工程化、可治理、可扩展的 ROS2 Agent 架构参考实现。采用 Brain-Cerebellum（大脑-小脑）分层架构，将认知规划与运动执行解耦。
+
+### 架构设计
+
+```
+                ┌────────────────────────┐
+                │        Brain           │
+                │ Dialog / Agent Core    │
+                │ Plan / Memory / Tool   │
+                └───────────┬────────────┘
+                            │ SkillInvoke
+                ┌───────────▼────────────┐
+                │      Cerebellum        │
+                │   Skill Server Layer   │
+                │ Nav2 / MoveIt2 Adapter │
+                └───────────┬────────────┘
+                            │
+                ┌───────────▼────────────┐
+                │          ROS2          │
+                │ Action / Service / TF  │
+                └────────────────────────┘
+```
+
+### 核心特性
+
+- **Brain 层（大脑）**：对话管理、LLM 调用编排、记忆系统、工具路由
+- **Cerebellum 层（小脑）**：技能执行、世界状态管理、错误恢复
+- **记忆系统**：基于文件系统的可扩展记忆存储
+  - 短期记忆 (turns.jsonl)
+  - 会话摘要 (summary.json)
+  - 用户事实 (facts.json)
+  - 事件日志 (events.jsonl)
+- **工具治理**：权限控制、限流策略、审计日志、dry-run 模式
+- **技能框架**：Primitive/Skill/Task 三层能力模型
+
+## 快速开始
+
+### 使用 Docker（推荐）
+
+```bash
+# 一键构建、启动并运行测试
+./run_docker.sh all
+
+# 或者分步执行：
+./run_docker.sh build      # 构建 Docker 镜像
+./run_docker.sh start      # 启动容器
+./run_docker.sh build_ws   # 构建 ROS2 工作空间
+./run_docker.sh test       # 运行测试
+
+# 进入容器 shell
+./run_docker.sh shell
+```
+
+### 从源码编译
+
+```bash
+# 创建工作空间
+mkdir -p ros2_ws/src && cd ros2_ws/src
+git clone https://github.com/iampfc/ros2-brain-agent.git
+cd ..
+colcon build --symlink-install
+source install/setup.bash
+```
+
+### 配置
+
+```bash
+export LLM_API_KEY="your-api-key"
+```
+
+### 运行
+
+```bash
+# 启动所有节点
+ros2 launch cmm_brain brain_agent.launch.py
+
+# 以 dry-run 模式启动
+ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
+```
+
+## 包结构
+
+| 包名 | 说明 |
+|------|------|
+| `cmm_interfaces` | ROS2 消息/服务/动作接口定义 |
+| `cmm_brain` | Brain 层核心节点 |
+| `cmm_cerebellum` | Cerebellum 层技能服务 |
+| `cmm_io` | 语音输入输出（ASR/TTS） |
+
+## 测试
+
+```bash
+./run_docker.sh test           # 所有测试
+./run_docker.sh integration    # 集成测试
+```
+
+## 路线图
+
+- [ ] SQLite 记忆后端
+- [ ] Redis 记忆后端
+- [ ] 向量语义记忆
+- [ ] 多机器人支持
+- [ ] Web 管理面板
+
+## 许可证
+
+Apache-2.0
+
+<p align="center"><a href="#english">← Switch to English</a></p>
+
+</details>
