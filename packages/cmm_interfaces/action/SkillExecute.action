@@ -1,0 +1,26 @@
+# SkillExecute.action - 技能执行Action
+
+# Goal
+string skill_name        # 技能名称
+string args_json         # JSON格式的参数
+string session_id        # 会话ID
+bool dry_run             # 是否为试运行模式
+float32 timeout_sec      # 超时时间(秒)
+
+---
+
+# Result
+bool success
+string result_json       # JSON格式的执行结果
+string error_code        # 错误码
+string error_message     # 错误信息
+int64 duration_ms        # 执行耗时
+string[] executed_steps  # 已执行的步骤列表
+
+---
+
+# Feedback
+float32 progress         # 进度 0.0 - 1.0
+string current_step      # 当前步骤描述
+string message           # 反馈消息
+string[] completed_steps # 已完成的步骤

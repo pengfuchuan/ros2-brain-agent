@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  ros2-brain-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ros2-brain-agent:latest
+    container_name: ros2-brain-agent
+    restart: unless-stopped
+    network_mode: host
+
+    volumes:
+      - .:/ros2_ws/src/ros2-brain-agent
+
+    environment:
+      - LLM_API_KEY=mock
+      - LLM_PROVIDER=mock
+      - LLM_BASE_URL=
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+    working_dir: /ros2_ws
+
+    command: bash -c "source /opt/ros/humble/setup.bash && tail -f /dev/null"
+
+    # For GUI applications (optional)
+    # volumes:
+    #   - /tmp/.X11-unix:/tmp/.X11-unix
+    # environment:
+    #   - DISPLAY=${DISPLAY}

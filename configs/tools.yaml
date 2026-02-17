@@ -1,0 +1,199 @@
+# tools.yaml - 工具注册表
+# 定义 Brain 可调用的工具及其属性
+
+tools:
+  # ===================
+  # Navigation Primitives
+  # ===================
+  nav2.goto:
+    type: primitive
+    description: "导航到指定位置"
+    category: navigation
+    json_schema:
+      type: object
+      properties:
+        target_pose:
+          type: object
+          properties:
+            x: { type: number }
+            y: { type: number }
+            theta: { type: number }
+          required: [x, y]
+        frame_id:
+          type: string
+          default: "map"
+      required: [target_pose]
+    permission_level: safe
+    timeout_sec: 120.0
+    retry:
+      max_attempts: 3
+      backoff_sec: 2.0
+    rate_limit:
+      max_per_minute: 10
+    preconditions:
+      - "localization_ok == true"
+      - "safety_state != 'ESTOP'"
+    postconditions:
+      - "robot_at_target == true"
+
+  nav2.stop:
+    type: primitive
+    description: "停止导航"
+    category: navigation
+    json_schema:
+      type: object
+      properties: {}
+    permission_level: safe
+    timeout_sec: 5.0
+
+  # ===================
+  # Manipulation Primitives
+  # ===================
+  arm.move_to:
+    type: primitive
+    description: "移动机械臂到目标位姿"
+    category: manipulation
+    json_schema:
+      type: object
+      properties:
+        target_pose:
+          type: object
+          properties:
+            position: { type: object }
+            orientation: { type: object }
+        planning_group:
+          type: string
+          default: "arm"
+      required: [target_pose]
+    permission_level: safe
+    timeout_sec: 60.0
+    retry:
+      max_attempts: 2
+    preconditions:
+      - "arm_state != 'ERROR'"
+      - "safety_state != 'ESTOP'"
+
+  arm.grasp:
+    type: primitive
+    description: "执行抓取动作"
+    category: manipulation
+    json_schema:
+      type: object
+      properties:
+        grasp_pose:
+          type: object
+        approach_distance:
+          type: number
+          default: 0.1
+      required: [grasp_pose]
+    permission_level: confirm
+    timeout_sec: 30.0
+    preconditions:
+      - "holding_object == false"
+
+  arm.release:
+    type: primitive
+    description: "释放物体"
+    category: manipulation
+    json_schema:
+      type: object
+      properties: {}
+    permission_level: safe
+    timeout_sec: 10.0
+
+  # ===================
+  # Perception Primitives
+  # ===================
+  perception.detect:
+    type: primitive
+    description: "检测指定类型的物体"
+    category: perception
+    json_schema:
+      type: object
+      properties:
+        object_type:
+          type: string
+          description: "物体类型，如 cup, bottle, person"
+        region:
+          type: object
+          description: "检测区域"
+      required: [object_type]
+    permission_level: safe
+    timeout_sec: 10.0
+
+  # ===================
+  # Composite Skills
+  # ===================
+  skill.pick_object:
+    type: skill
+    description: "拾取物体复合技能"
+    category: manipulation
+    json_schema:
+      type: object
+      properties:
+        object_id:
+          type: string
+          description: "目标物体ID"
+        object_type:
+          type: string
+          description: "物体类型"
+      required: [object_id]
+    permission_level: confirm
+    timeout_sec: 120.0
+    steps:
+      - perception.detect
+      - arm.move_to
+      - arm.grasp
+    error_recovery:
+      OBJECT_NOT_FOUND: ["perception.detect", "retry"]
+      GRASP_FAILED: ["arm.release", "arm.move_to", "retry"]
+
+  skill.deliver_object:
+    type: skill
+    description: "递送物体复合技能"
+    category: manipulation
+    json_schema:
+      type: object
+      properties:
+        target_location:
+          type: object
+          properties:
+            x: { type: number }
+            y: { type: number }
+        object_id:
+          type: string
+      required: [target_location]
+    permission_level: confirm
+    timeout_sec: 180.0
+    steps:
+      - nav2.goto
+      - arm.move_to
+      - arm.release
+    preconditions:
+      - "holding_object == true"
+
+  skill.approach_for_pick:
+    type: skill
+    description: "接近物体准备拾取"
+    category: navigation
+    json_schema:
+      type: object
+      properties:
+        object_id:
+          type: string
+        approach_distance:
+          type: number
+          default: 0.5
+      required: [object_id]
+    permission_level: safe
+    timeout_sec: 60.0
+
+# ===================
+# Global Settings
+# ===================
+settings:
+  default_timeout_sec: 30.0
+  default_retry_attempts: 2
+  max_concurrent_tools: 3
+  audit_all_calls: true
+  dry_run_allowed: true

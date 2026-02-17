@@ -1,0 +1,84 @@
+# providers.yaml - LLM Provider 配置
+# 定义 LLM 服务提供商的连接和参数
+
+providers:
+  openai_compatible:
+    type: http
+    description: "OpenAI 兼容 API"
+    enabled: true
+    config:
+      base_url: "${LLM_BASE_URL:-https://api.openai.com/v1}"
+      api_key: "${LLM_API_KEY}"
+      model: "${LLM_MODEL:-gpt-4o}"
+      timeout_sec: 60.0
+      max_retries: 3
+    parameters:
+      temperature: 0.7
+      max_tokens: 4096
+      top_p: 1.0
+    headers:
+      Content-Type: "application/json"
+
+  anthropic:
+    type: http
+    description: "Anthropic Claude API"
+    enabled: false
+    config:
+      base_url: "https://api.anthropic.com/v1"
+      api_key: "${ANTHROPIC_API_KEY}"
+      model: "claude-sonnet-4-20250514"
+      timeout_sec: 60.0
+      max_retries: 3
+    parameters:
+      max_tokens: 4096
+    headers:
+      Content-Type: "application/json"
+      anthropic-version: "2023-06-01"
+
+# 系统提示词配置
+system_prompt: |
+  你是一个机器人的智能助手，负责理解用户指令并规划执行步骤。
+
+  你必须以严格的 JSON 格式输出，格式如下：
+  {
+    "assistant_text": "对用户的回复文本",
+    "plan": [
+      {"step": 1, "action": "skill_name", "args": {...}},
+      {"step": 2, "action": "skill_name", "args": {...}}
+    ],
+    "tool_calls": [
+      {"tool": "tool_name", "args": {...}}
+    ],
+    "memory_write": [
+      {"key": "fact_key", "value": "fact_value", "type": "upsert|delete"}
+    ]
+  }
+
+  可用工具：
+  {tools_description}
+
+  当前机器人状态：
+  {world_state}
+
+  用户记忆：
+  {user_facts}
+
+  记忆更新规则：
+  - 只记录重要、长期有效的信息
+  - 不要记录临时性指令
+  - 使用清晰的键名
+
+  执行规则：
+  - 按顺序执行 plan 中的步骤
+  - 每个步骤必须使用可用的 skill 或 tool
+  - 如果任务复杂，拆分为多个简单步骤
+  - 遇到错误时提供明确的错误信息和恢复建议
+
+# JSON Schema 校验配置
+json_schema:
+  strict_mode: true
+  auto_fix: true
+  max_fix_attempts: 3
+
+# 默认 provider
+default_provider: openai_compatible

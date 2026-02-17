@@ -1,0 +1,15 @@
+# ToolExecute.srv - 工具执行服务
+
+# Request
+string tool_name         # 工具名称
+string args_json         # JSON格式的参数
+string session_id        # 会话ID
+bool dry_run             # 是否为试运行模式
+
+---
+
+# Response
+bool success
+string result_json       # JSON格式的执行结果
+cmm_interfaces/ErrorInfo error
+int64 duration_ms        # 执行耗时
