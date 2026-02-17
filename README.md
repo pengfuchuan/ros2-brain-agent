@@ -19,6 +19,8 @@
 
 ROS2 Brain Agent is an engineering-grade, governable, and extensible ROS2 Agent architecture reference implementation. It adopts a Brain-Cerebellum layered architecture that decouples cognitive planning from motion execution.
 
+> 📄 **Full Documentation**: [中文完整文档 (README_CN.md)](README_CN.md)
+
 ### Architecture
 
 ```
@@ -139,6 +141,8 @@ Apache-2.0
 ## 概述
 
 ROS2 Brain Agent 是一个可工程化、可治理、可扩展的 ROS2 Agent 架构参考实现。采用 Brain-Cerebellum（大脑-小脑）分层架构，将认知规划与运动执行解耦。
+
+> 📄 **完整文档**: [中文完整版 (README_CN.md)](README_CN.md)
 
 ### 架构设计
 
