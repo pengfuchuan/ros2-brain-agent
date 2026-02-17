@@ -1,0 +1,14 @@
+# MemoryQuery.srv - 记忆查询服务
+
+# Request
+string session_id        # 会话ID
+string query_type        # 查询类型: turns, events, summary, facts, recent
+int32 limit              # 限制返回数量(可选, -1表示无限制)
+int32 offset             # 偏移量(可选)
+
+---
+
+# Response
+bool success
+string result_json       # JSON格式的查询结果
+cmm_interfaces/ErrorInfo error

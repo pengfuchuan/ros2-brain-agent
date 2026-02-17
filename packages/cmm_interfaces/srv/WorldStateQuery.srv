@@ -1,0 +1,12 @@
+# WorldStateQuery.srv - 世界状态查询服务
+
+# Request
+string query_type        # 查询类型: full, pose, nav_state, arm_state, objects, safety
+string[] keys            # 特定键值查询(可选)
+
+---
+
+# Response
+bool success
+string state_json        # JSON格式的状态数据
+cmm_interfaces/ErrorInfo error
