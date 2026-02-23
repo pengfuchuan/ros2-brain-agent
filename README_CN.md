@@ -294,6 +294,58 @@ ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
 ros2 topic pub /dialog/user_input std_msgs/String "{data: '{\"text\": \"导航到厨房\", \"session_id\": \"test1\"}'}" --once
 ```
 
+## 会话管理 Web UI
+
+基于 Web 的会话管理控制台，用于查看和管理对话记录。
+
+### 启动 Web 服务
+
+```bash
+# 安装 Flask（如未安装）
+pip install flask
+
+# 默认端口 8080 启动
+python scripts/dialog_web.py
+
+# 指定端口启动
+python scripts/dialog_web.py --port 3000
+
+# 允许外部访问
+python scripts/dialog_web.py --host 0.0.0.0
+```
+
+### 功能页面
+
+| 页面 | 路径 | 说明 |
+|------|------|------|
+| 会话列表 | `/` | 所有会话列表，支持搜索 |
+| 统计概览 | `/stats` | 全局统计数据 |
+| 会话详情 | `/session/{id}` | 对话轮次查看 |
+| 事件日志 | `/session/{id}/events` | 事件记录，支持过滤 |
+| 性能分析 | `/session/{id}/analyze` | 响应质量分析报告 |
+| 事实数据 | `/session/{id}/facts` | 会话事实存储 |
+| API 接口 | `/api/sessions` | JSON API 端点 |
+| 数据导出 | `/api/session/{id}/export` | 导出会话为 JSON |
+
+### 命令行查看工具
+
+```bash
+# 列出所有会话
+python scripts/dialog_viewer.py sessions
+
+# 查看对话轮次
+python scripts/dialog_viewer.py turns <session_id>
+
+# 查看事件日志
+python scripts/dialog_viewer.py events <session_id>
+
+# 分析响应质量
+python scripts/dialog_viewer.py analyze <session_id>
+
+# 导出会话数据
+python scripts/dialog_viewer.py export <session_id>
+```
+
 ## 扩展开发
 
 ### 添加新工具
@@ -328,7 +380,7 @@ tools:
 - [ ] Redis 记忆后端
 - [ ] 向量语义记忆
 - [ ] 多机器人支持
-- [ ] Web 管理面板
+- [x] Web 管理面板
 
 ## 贡献指南
 
