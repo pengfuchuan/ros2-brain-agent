@@ -108,6 +108,58 @@ ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
 | `cmm_cerebellum` | Cerebellum layer skill services |
 | `cmm_io` | Voice IO (ASR/TTS) |
 
+## Dialog Web UI
+
+A web-based management console for viewing and managing conversation records.
+
+### Start Web Server
+
+```bash
+# Install Flask (if not installed)
+pip install flask
+
+# Start server on default port 8080
+python scripts/dialog_web.py
+
+# Start on custom port
+python scripts/dialog_web.py --port 3000
+
+# Allow external access
+python scripts/dialog_web.py --host 0.0.0.0
+```
+
+### Features
+
+| Page | Path | Description |
+|------|------|-------------|
+| Sessions | `/` | List all sessions with search |
+| Statistics | `/stats` | Global statistics overview |
+| Session Detail | `/session/{id}` | Conversation turns |
+| Events | `/session/{id}/events` | Event log with filtering |
+| Analyze | `/session/{id}/analyze` | Performance analysis report |
+| Facts | `/session/{id}/facts` | Session facts data |
+| API | `/api/sessions` | JSON API endpoint |
+| Export | `/api/session/{id}/export` | Export session as JSON |
+
+### CLI Viewer
+
+```bash
+# List all sessions
+python scripts/dialog_viewer.py sessions
+
+# View conversation turns
+python scripts/dialog_viewer.py turns <session_id>
+
+# View events log
+python scripts/dialog_viewer.py events <session_id>
+
+# Analyze response quality
+python scripts/dialog_viewer.py analyze <session_id>
+
+# Export session data
+python scripts/dialog_viewer.py export <session_id>
+```
+
 ## Testing
 
 ```bash
@@ -121,7 +173,7 @@ ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
 - [ ] Redis memory backend
 - [ ] Vector-based semantic memory
 - [ ] Multi-robot support
-- [ ] Web dashboard
+- [x] Web management dashboard
 
 ## License
 
@@ -238,13 +290,40 @@ ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
 ./run_docker.sh integration    # 集成测试
 ```
 
+## 会话管理 Web UI
+
+基于 Web 的会话管理控制台。
+
+### 启动服务
+
+```bash
+pip install flask
+python scripts/dialog_web.py --port 8080
+```
+
+### 功能
+
+- 会话列表与搜索
+- 对话轮次查看
+- 事件日志过滤
+- 性能分析报告
+- JSON API 接口
+
+### CLI 工具
+
+```bash
+python scripts/dialog_viewer.py sessions
+python scripts/dialog_viewer.py turns <session_id>
+python scripts/dialog_viewer.py analyze <session_id>
+```
+
 ## 路线图
 
 - [ ] SQLite 记忆后端
 - [ ] Redis 记忆后端
 - [ ] 向量语义记忆
 - [ ] 多机器人支持
-- [ ] Web 管理面板
+- [x] Web 管理面板
 
 ## 许可证
 
