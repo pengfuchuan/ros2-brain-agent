@@ -51,6 +51,7 @@ ROS2 Brain Agent 是一个可工程化、可治理、可扩展的 ROS2 Agent 架
 - **工具治理**：权限控制、限流策略、审计日志、dry-run 模式
 - **技能框架**：Primitive/Skill/Task 三层能力模型
 - **错误恢复**：统一错误码体系、补偿动作、自动重试机制
+- **Web UI**：基于浏览器的对话管理控制台，支持实时 ROS2 集成
 
 ## 包结构
 
@@ -63,9 +64,27 @@ ROS2 Brain Agent 是一个可工程化、可治理、可扩展的 ROS2 Agent 架
 
 ## 快速开始
 
-### 使用 Docker（推荐）
+### 前置条件
 
-使用 Docker 可以快速搭建开发和测试环境：
+- Docker 和 Docker Compose
+- LLM API Key（阿里云百炼、OpenAI 等）
+
+### 1. 配置 LLM
+
+在项目根目录创建 `.env` 文件：
+
+```bash
+# .env 配置文件
+LLM_API_KEY=your-api-key-here
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_MODEL=qwen3-max-2026-01-23
+
+# OpenAI 配置示例：
+# LLM_BASE_URL=https://api.openai.com/v1
+# LLM_MODEL=gpt-4o
+```
+
+### 2. 使用 Docker（推荐）
 
 ```bash
 # 一键构建、启动并运行测试
@@ -73,19 +92,18 @@ ROS2 Brain Agent 是一个可工程化、可治理、可扩展的 ROS2 Agent 架
 
 # 或者分步执行：
 ./run_docker.sh build      # 构建 Docker 镜像
-./run_docker.sh start      # 启动容器
+./run_docker.sh start      # 启动容器（端口 8081, 9090）
 ./run_docker.sh build_ws   # 构建 ROS2 工作空间
 ./run_docker.sh test       # 运行测试
 
+# 启动 Web UI
+./run_docker.sh web
+
+# 监听 ROS2 事件
+./run_docker.sh monitor
+
 # 进入容器 shell
 ./run_docker.sh shell
-
-# 其他命令
-./run_docker.sh quick        # 快速单元测试
-./run_docker.sh integration  # 完整集成测试
-./run_docker.sh logs         # 查看容器日志
-./run_docker.sh stop         # 停止容器
-./run_docker.sh clean        # 清理容器和镜像
 ```
 
 #### Docker 命令一览
@@ -96,11 +114,13 @@ ROS2 Brain Agent 是一个可工程化、可治理、可扩展的 ROS2 Agent 架
 | `./run_docker.sh start` | 启动容器 |
 | `./run_docker.sh stop` | 停止容器 |
 | `./run_docker.sh shell` | 进入容器 shell |
+| `./run_docker.sh web` | 启动 Web UI |
+| `./run_docker.sh monitor` | 监听 ROS2 事件 |
 | `./run_docker.sh build_ws` | 构建 ROS2 工作空间 |
 | `./run_docker.sh test` | 运行所有测试 |
-| `./run_docker.sh quick` | 快速单元测试 |
 | `./run_docker.sh integration` | 完整集成测试 |
 | `./run_docker.sh all` | 一键构建、启动、测试 |
+| `./run_docker.sh logs` | 查看容器日志 |
 | `./run_docker.sh clean` | 清理容器和镜像 |
 
 #### 使用 docker-compose
@@ -116,62 +136,98 @@ docker exec -it ros2-brain-agent bash
 docker-compose down
 ```
 
-### 环境要求（不使用 Docker）
+### 3. 访问 Web UI
 
-- ROS2 Humble 或更高版本
-- Python 3.10+
-- Nav2（可选，用于导航功能）
-- MoveIt2（可选，用于机械臂控制）
+在浏览器中打开 http://localhost:8081
 
-### 编译
+## Web UI 功能
 
-```bash
-# 创建工作空间
-mkdir -p ros2_ws/src
-cd ros2_ws/src
+基于 Web 的 Brain Agent 控制台，支持完整的认知规划与执行流程。
 
-# 克隆仓库
-git clone https://github.com/your-org/ros2-brain-agent.git
+### 架构设计
 
-# 编译
-cd ..
-colcon build --symlink-install
-
-# 加载环境
-source install/setup.bash
+```
+用户输入 → [意图理解] → [规划] → [执行] → 响应
+              ↓            ↓        ↓
+        LLM 解析     生成 Action Plan   仿真/实机执行
+                    (JSON 格式)
 ```
 
-### 配置
+### 功能特性
 
-1. 设置 LLM API 凭证：
+- **聊天界面**：发送消息并接收带有执行计划的 AI 响应
+- **会话管理**：创建、查看和管理对话会话
+- **事件监控**：实时 ROS2 事件发布和监控
+- **性能分析**：查看响应时间、Token 使用量和错误率
+
+### API 端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/api/chat` | POST | 发送聊天消息 |
+| `/api/sessions` | GET | 列出所有会话 |
+| `/api/session/<id>` | GET | 获取会话详情 |
+| `/api/mode` | GET/POST | 获取/设置执行模式 (simulation/ros2) |
+| `/api/world_state` | GET | 获取当前机器人状态 |
+
+### API 使用示例
+
 ```bash
-export LLM_API_KEY="your-api-key"
-export LLM_BASE_URL="https://api.openai.com/v1"  # 可选
-export LLM_MODEL="gpt-4o"  # 可选
+# 发送聊天消息
+curl -X POST http://localhost:8081/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "test", "message": "导航到厨房", "dry_run": false}'
 ```
 
-2. 配置工具：`configs/tools.yaml`
-3. 配置 LLM 提供者：`configs/providers.yaml`
+### 功能页面
 
-### 运行
+| 页面 | 路径 | 说明 |
+|------|------|------|
+| 聊天测试 | `/chat` | Brain Agent 聊天界面（规划+执行） |
+| 聊天会话 | `/chat/{id}` | 指定会话的聊天界面 |
+| 会话列表 | `/` | 所有会话列表，支持搜索 |
+| 统计概览 | `/stats` | 全局统计数据 |
+| 会话详情 | `/session/{id}` | 对话轮次查看 |
+| 事件日志 | `/session/{id}/events` | 事件记录，支持过滤 |
+| 性能分析 | `/session/{id}/analyze` | 响应质量分析报告 |
+| 事实数据 | `/session/{id}/facts` | 会话事实存储 |
+
+### 可用原语与技能
+
+| 类别 | 动作 |
+|------|------|
+| 导航 | `nav2.goto`, `nav2.stop` |
+| 操作 | `arm.move_to`, `arm.grasp`, `arm.release` |
+| 感知 | `perception.detect` |
+| 复合技能 | `skill.pick_object`, `skill.deliver_object`, `skill.approach_for_pick` |
+
+## ROS2 集成
+
+### 话题列表
+
+| 话题 | 类型 | 说明 |
+|------|------|------|
+| `/dialog/events` | std_msgs/String | 对话事件 (turn_start, llm_result, skill_execute, turn_end) |
+| `/dialog/llm_response` | std_msgs/String | LLM 响应 |
+| `/world_state/current` | std_msgs/String | 机器人世界状态 |
+| `/skill/execute` | std_msgs/String | 技能执行请求 |
+| `/tool/execute` | std_msgs/String | 工具执行请求 |
+
+### 监控事件
 
 ```bash
-# 启动所有节点
-ros2 launch cmm_brain brain_agent.launch.py
+# 进入容器
+docker exec -it ros2-brain-agent bash
+source /opt/ros/humble/setup.bash
 
-# 启动并启用语音
-ros2 launch cmm_brain brain_agent.launch.py enable_asr:=true enable_tts:=true
+# 监听对话事件
+ros2 topic echo /dialog/events --full-length
 
-# 以 dry-run 模式启动（不执行真实机器人动作）
-ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
+# 或使用监控脚本
+python3 scripts/monitor.py --events
 
-# 或单独运行各节点
-ros2 run cmm_brain dialog_manager_node
-ros2 run cmm_brain llm_orchestrator_node
-ros2 run cmm_brain tool_router_node
-ros2 run cmm_brain memory_node
-ros2 run cmm_cerebellum world_state_node
-ros2 run cmm_cerebellum skill_server_node
+# 或使用格式化事件查看器
+python3 scripts/event_viewer.py
 ```
 
 ## 项目结构
@@ -204,175 +260,38 @@ ros2-brain-agent/
 │   └── cmm_io/              # IO 层
 │       ├── asr_client_node.py        # 语音识别
 │       └── tts_client_node.py        # 语音合成
+├── scripts/
+│   ├── dialog_web.py         # Web UI 服务器
+│   ├── dialog_viewer.py      # 命令行会话查看器
+│   ├── monitor.py            # ROS2 话题监控
+│   ├── event_viewer.py       # 格式化事件查看器
+│   └── ros2_bridge_client.py # WebSocket 桥接客户端
 ├── configs/
 │   ├── tools.yaml           # 工具注册表
 │   ├── providers.yaml       # LLM 提供者配置
 │   └── logging.yaml         # 日志配置
 ├── launch/                  # 启动文件
 ├── memory/                  # 记忆存储目录
-└── tests/                   # 测试套件
+├── docs/                    # 文档
+│   ├── ROS2_COMMANDS.md     # ROS2 命令参考
+│   └── TEST_DEMO.md         # 测试演示指南
+├── .env                     # LLM API 配置
+├── docker-compose.yml       # Docker Compose 配置
+└── run_docker.sh            # Docker 管理脚本
 ```
-
-## ROS2 接口参考
-
-### 消息类型
-
-- `DialogEvent.msg` - 对话事件，用于 /dialog/events 话题
-- `WorldState.msg` - 机器人世界状态
-- `ToolCall.msg` - 工具调用规范
-- `ErrorInfo.msg` - 统一错误信息
-
-### 服务类型
-
-- `WorldStateQuery.srv` - 查询机器人世界状态
-- `MemoryQuery.srv` - 查询会话记忆
-- `ToolExecute.srv` - 同步执行工具
-
-### 动作类型
-
-- `SkillExecute.action` - 执行技能并获取反馈
-
-## 话题列表
-
-| 话题 | 类型 | 说明 |
-|------|------|------|
-| `/dialog/user_input` | String | 用户输入（文本或 JSON） |
-| `/dialog/llm_response` | String | LLM 响应（JSON 格式） |
-| `/dialog/events` | DialogEvent | 对话事件流 |
-| `/tool/execute` | String | 工具执行请求 |
-| `/tool/result` | String | 工具执行结果 |
-| `/skill/execute` | String | 技能执行请求 |
-| `/world_state/current` | WorldState | 当前世界状态 |
-| `/world_state/update` | String | 世界状态更新 |
-
-## LLM 输出格式
-
-LLM 必须输出结构化 JSON：
-
-```json
-{
-  "assistant_text": "对用户的回复文本",
-  "plan": [
-    {"step": 1, "action": "skill_name", "args": {...}}
-  ],
-  "tool_calls": [
-    {"tool": "tool_name", "args": {...}}
-  ],
-  "memory_write": [
-    {"key": "fact_key", "value": "fact_value", "type": "upsert"}
-  ]
-}
-```
-
-## 错误码
-
-| 错误码 | 类别 | 说明 |
-|--------|------|------|
-| `OBJECT_NOT_FOUND` | 感知 | 目标物体未检测到 |
-| `NAV_TIMEOUT` | 导航 | 导航超时 |
-| `LOCALIZATION_UNSTABLE` | 导航 | 定位质量过低 |
-| `GRASP_FAILED` | 操作 | 抓取失败 |
-| `SAFETY_ESTOP` | 安全 | 急停触发 |
-| `TOOL_NOT_FOUND` | 系统 | 请求的工具未注册 |
-| `RATE_LIMITED` | 系统 | 触发限流 |
-| `INVALID_ARGS` | 系统 | 工具参数无效 |
 
 ## 测试
 
 ```bash
-# 运行测试
-colcon test --packages-select cmm_brain
-
-# 仿真模式测试
-ros2 launch cmm_brain brain_agent.launch.py dry_run:=true
+./run_docker.sh test           # 所有测试
+./run_docker.sh integration    # 集成测试
+./run_docker.sh quick          # 快速单元测试
 ```
 
-### 文本模式演示
+## 文档
 
-```bash
-# 发布测试消息
-ros2 topic pub /dialog/user_input std_msgs/String "{data: '{\"text\": \"导航到厨房\", \"session_id\": \"test1\"}'}" --once
-```
-
-## 会话管理 Web UI
-
-基于 Web 的会话管理控制台，用于查看和管理对话记录。
-
-### 启动 Web 服务
-
-```bash
-# 安装 Flask（如未安装）
-pip install flask
-
-# 默认端口 8080 启动
-python scripts/dialog_web.py
-
-# 指定端口启动
-python scripts/dialog_web.py --port 3000
-
-# 允许外部访问
-python scripts/dialog_web.py --host 0.0.0.0
-```
-
-### 功能页面
-
-| 页面 | 路径 | 说明 |
-|------|------|------|
-| 会话列表 | `/` | 所有会话列表，支持搜索 |
-| 统计概览 | `/stats` | 全局统计数据 |
-| 会话详情 | `/session/{id}` | 对话轮次查看 |
-| 事件日志 | `/session/{id}/events` | 事件记录，支持过滤 |
-| 性能分析 | `/session/{id}/analyze` | 响应质量分析报告 |
-| 事实数据 | `/session/{id}/facts` | 会话事实存储 |
-| API 接口 | `/api/sessions` | JSON API 端点 |
-| 数据导出 | `/api/session/{id}/export` | 导出会话为 JSON |
-
-### 命令行查看工具
-
-```bash
-# 列出所有会话
-python scripts/dialog_viewer.py sessions
-
-# 查看对话轮次
-python scripts/dialog_viewer.py turns <session_id>
-
-# 查看事件日志
-python scripts/dialog_viewer.py events <session_id>
-
-# 分析响应质量
-python scripts/dialog_viewer.py analyze <session_id>
-
-# 导出会话数据
-python scripts/dialog_viewer.py export <session_id>
-```
-
-## 扩展开发
-
-### 添加新工具
-
-1. 在 `configs/tools.yaml` 中添加工具定义：
-```yaml
-tools:
-  my_tool:
-    type: primitive
-    description: "我的自定义工具"
-    category: custom
-    json_schema:
-      type: object
-      properties:
-        param1: { type: string }
-      required: [param1]
-    permission_level: safe
-    timeout_sec: 30.0
-```
-
-2. 在 `cmm_cerebellum/skills/` 中实现技能
-3. 在 `skill_server_node.py` 中注册
-
-### 添加新 LLM 提供者
-
-1. 在 `configs/providers.yaml` 中添加配置
-2. 在 `llm_provider.py` 中实现继承自 `LLMProvider` 的类
+- [ROS2 命令参考](docs/ROS2_COMMANDS.md)
+- [测试演示指南](docs/TEST_DEMO.md)
 
 ## 路线图
 
@@ -381,6 +300,8 @@ tools:
 - [ ] 向量语义记忆
 - [ ] 多机器人支持
 - [x] Web 管理面板
+- [x] ROS2 事件发布
+- [x] 实时监控
 
 ## 贡献指南
 

@@ -19,17 +19,585 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Load .env file if exists
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent.parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"Loaded configuration from {env_path}")
+except ImportError:
+    pass
+
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "packages" / "cmm_brain"))
 
-from cmm_brain.memory import Turn, Event, Summary, Facts
+from cmm_brain.memory import Turn, Event, Summary, Facts, MemoryStore
 from cmm_brain.memory.filesystem_store import FileSystemMemoryStore
+
+try:
+    from cmm_brain.llm_provider import LLMConfig, OpenAICompatibleProvider, MockLLMProvider, create_provider_from_config
+    LLM_AVAILABLE = True
+except ImportError:
+    LLM_AVAILABLE = False
+
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
 
 try:
     from flask import Flask, render_template_string, jsonify, request, redirect, url_for
     FLASK_AVAILABLE = True
 except ImportError:
     FLASK_AVAILABLE = False
+
+
+# Global instances
+_llm_provider = None
+_llm_config = None
+_tools_config = None
+_ros2_bridge = None
+_world_state = {
+    "robot_position": {"x": 0.0, "y": 0.0, "theta": 0.0},
+    "battery_level": 85,
+    "holding_object": False,
+    "localization_ok": True,
+    "safety_state": "NORMAL",
+    "arm_state": "READY"
+}
+
+
+def get_ros2_bridge():
+    """Get or create ROS2 bridge client."""
+    global _ros2_bridge
+
+    if _ros2_bridge is not None:
+        return _ros2_bridge
+
+    # Import bridge client
+    try:
+        from ros2_bridge_client import create_bridge_client
+        _ros2_bridge = create_bridge_client()
+        print(f"ROS2 Bridge initialized: {type(_ros2_bridge).__name__}")
+    except ImportError as e:
+        print(f"Warning: Could not import ros2_bridge_client: {e}")
+        print("Using simulation mode")
+        from ros2_bridge_client import SimulationBridge
+        _ros2_bridge = SimulationBridge()
+
+    return _ros2_bridge
+
+
+def publish_event_to_ros2(event_type: str, session_id: str, payload: dict,
+                          source: str = "web", success: bool = True,
+                          error_message: str = "", duration_ms: int = 0,
+                          event_id: str = None):
+    """Publish an event to ROS2 /dialog/events topic."""
+    try:
+        bridge = get_ros2_bridge()
+        if not bridge or not hasattr(bridge, 'publish'):
+            return False
+
+        # Generate event ID if not provided
+        if not event_id:
+            event_id = MemoryStore.generate_event_id()
+
+        # Get current timestamp
+        ts = MemoryStore.get_timestamp()
+
+        # Build ROS2 DialogEvent message structure
+        # Match cmm_interfaces/msg/DialogEvent.msg
+        import time
+        ts_parts = ts.replace('Z', '+00:00').split('T')
+        date_part = ts_parts[0] if len(ts_parts) > 0 else "2026-01-01"
+        time_part = ts_parts[1].split('+')[0] if len(ts_parts) > 1 else "00:00:00"
+
+        # Parse to get seconds and nanoseconds
+        try:
+            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            ts_sec = int(dt.timestamp())
+            ts_nanosec = int((dt.timestamp() - ts_sec) * 1e9)
+        except:
+            ts_sec = int(time.time())
+            ts_nanosec = 0
+
+        ros2_msg = {
+            "header": {
+                "stamp": {
+                    "sec": ts_sec,
+                    "nanosec": ts_nanosec
+                },
+                "frame_id": ""
+            },
+            "event_id": event_id,
+            "session_id": session_id,
+            "event_type": event_type,
+            "source": source,
+            "payload_json": json.dumps(payload, ensure_ascii=False),
+            "timestamp": {
+                "sec": ts_sec,
+                "nanosec": ts_nanosec
+            },
+            "duration_ms": duration_ms,
+            "success": success,
+            "error_message": error_message
+        }
+
+        # Publish to ROS2 with message type (use std_msgs/String for compatibility)
+        # Wrap the event data as JSON string
+        string_msg = {"data": json.dumps(ros2_msg, ensure_ascii=False)}
+        result = bridge.publish("/dialog/events", string_msg, msg_type="std_msgs/msg/String")
+        if result:
+            print(f"[ROS2] Published event: {event_type} to /dialog/events")
+        return result
+
+    except Exception as e:
+        print(f"Warning: Failed to publish event to ROS2: {e}")
+        return False
+
+
+def get_llm_provider():
+    """Get or create LLM provider instance."""
+    global _llm_provider, _llm_config
+
+    if _llm_provider is not None:
+        return _llm_provider
+
+    # First, try environment variables directly
+    api_key = os.environ.get('LLM_API_KEY', '')
+    base_url = os.environ.get('LLM_BASE_URL', '')
+    model = os.environ.get('LLM_MODEL', '')
+
+    # If env vars are set, use them directly
+    if api_key and base_url:
+        llm_config = LLMConfig(
+            base_url=base_url,
+            api_key=api_key,
+            model=model or 'gpt-4o',
+            timeout_sec=60.0,
+            max_retries=3
+        )
+        _llm_provider = OpenAICompatibleProvider(llm_config)
+        _llm_config = {
+            'config': {'base_url': base_url, 'model': model},
+            'parameters': {'temperature': 0.7}
+        }
+        print(f"LLM Provider initialized: {base_url} / {model}")
+        return _llm_provider
+
+    # Try to load from config file
+    config_path = Path(__file__).parent.parent / 'configs' / 'providers.yaml'
+
+    if YAML_AVAILABLE and config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_content = f.read()
+
+            # Manually expand env vars
+            import re
+            def expand_env(match):
+                var_name = match.group(1)
+                default = match.group(2) if match.group(2) else ''
+                return os.environ.get(var_name, default)
+
+            config_content = re.sub(r'\$\{(\w+)(?::-([^}]*))?\}', expand_env, config_content)
+            config = yaml.safe_load(config_content)
+
+            provider_config = config.get('providers', {}).get('openai_compatible', {})
+            provider_config_config = provider_config.get('config', {})
+
+            # Check if we have valid config after expansion
+            cfg_api_key = provider_config_config.get('api_key', '')
+            cfg_base_url = provider_config_config.get('base_url', '')
+
+            if cfg_api_key and cfg_base_url and not cfg_base_url.startswith('${'):
+                _llm_provider = create_provider_from_config(provider_config)
+                _llm_config = provider_config
+                print(f"LLM Provider loaded from config: {cfg_base_url}")
+                return _llm_provider
+        except Exception as e:
+            print(f"Warning: Failed to load LLM config: {e}")
+
+    # Fallback to mock provider
+    print("Warning: No valid LLM configuration found, using mock provider")
+    print("Set LLM_API_KEY and LLM_BASE_URL environment variables to enable real LLM")
+    _llm_provider = MockLLMProvider(LLMConfig(
+        base_url='',
+        api_key='',
+        model='mock'
+    ))
+    _llm_config = {'type': 'mock'}
+
+    return _llm_provider
+
+
+def get_tools_config():
+    """Load tools configuration from tools.yaml."""
+    global _tools_config
+
+    if _tools_config is not None:
+        return _tools_config
+
+    config_path = Path(__file__).parent.parent / 'configs' / 'tools.yaml'
+
+    if YAML_AVAILABLE and config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                _tools_config = yaml.safe_load(f)
+                return _tools_config
+        except Exception as e:
+            print(f"Warning: Failed to load tools config: {e}")
+
+    return {'tools': {}, 'settings': {}}
+
+
+def get_tools_description() -> str:
+    """Generate tools description for system prompt."""
+    tools_config = get_tools_config()
+    tools = tools_config.get('tools', {})
+
+    descriptions = []
+    for tool_name, tool_info in tools.items():
+        desc = f"- {tool_name}: {tool_info.get('description', 'No description')}"
+        desc += f" (type: {tool_info.get('type', 'unknown')})"
+        if tool_info.get('permission_level'):
+            desc += f" [permission: {tool_info['permission_level']}]"
+        descriptions.append(desc)
+
+    return "\n".join(descriptions) if descriptions else "No tools available"
+
+
+def get_system_prompt(tools_description: str = "", world_state: dict = None, user_facts: dict = None) -> str:
+    """Get system prompt for Brain Agent."""
+    if world_state is None:
+        world_state = _world_state
+    if user_facts is None:
+        user_facts = {}
+
+    # Try to load from providers.yaml
+    config_path = Path(__file__).parent.parent / 'configs' / 'providers.yaml'
+
+    if YAML_AVAILABLE and config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                prompt_template = config.get('system_prompt', '')
+
+                if prompt_template:
+                    # Replace placeholders
+                    prompt = prompt_template.replace('{tools_description}', tools_description)
+                    prompt = prompt + f"\n\n当前机器人状态：\n{json.dumps(world_state, ensure_ascii=False, indent=2)}\n"
+                    if user_facts:
+                        prompt += f"\n用户记忆：\n{json.dumps(user_facts, ensure_ascii=False, indent=2)}\n"
+                    return prompt
+        except Exception as e:
+            print(f"Warning: Failed to load system prompt: {e}")
+
+    # Fallback prompt
+    return f"""你是一个机器人的智能助手，负责理解用户指令并规划执行步骤。
+
+你必须以严格的 JSON 格式输出，格式如下：
+{{
+  "assistant_text": "对用户的回复文本",
+  "plan": [
+    {{"step": 1, "action": "skill_name", "args": {{...}}}},
+    {{"step": 2, "action": "skill_name", "args": {{...}}}}
+  ],
+  "tool_calls": [],
+  "memory_write": []
+}}
+
+可用工具：
+{tools_description}
+
+当前机器人状态：
+{json.dumps(world_state, ensure_ascii=False, indent=2)}
+
+执行规则：
+- 按顺序执行 plan 中的步骤
+- 每个步骤必须使用可用的 skill 或 tool
+- 如果任务复杂，拆分为多个简单步骤
+- 如果是普通对话，plan 可以为空数组"""
+
+
+class SimulationExecutor:
+    """Executes primitives and skills via ROS2 bridge or simulation."""
+
+    def __init__(self, use_ros2: bool = False):
+        self.use_ros2 = use_ros2
+        self.world_state = _world_state.copy()
+        self.execution_log = []
+        self.ros2_bridge = None
+
+        if use_ros2:
+            try:
+                self.ros2_bridge = get_ros2_bridge()
+                print(f"Executor using ROS2 bridge: {type(self.ros2_bridge).__name__}")
+            except Exception as e:
+                print(f"Warning: Failed to get ROS2 bridge: {e}")
+                self.use_ros2 = False
+
+    def execute(self, plan: list, tool_calls: list) -> dict:
+        """Execute a plan and return results."""
+        results = {
+            "success": True,
+            "executed_steps": [],
+            "errors": [],
+            "state_changes": {}
+        }
+
+        # Execute plan steps
+        for step in plan:
+            step_result = self._execute_step(step)
+            results["executed_steps"].append(step_result)
+            if not step_result.get("success"):
+                results["success"] = False
+                results["errors"].append(step_result.get("error"))
+
+        # Execute direct tool calls
+        for tool_call in tool_calls:
+            tool_result = self._execute_tool(tool_call)
+            results["executed_steps"].append(tool_result)
+
+        # Update world state from bridge
+        if self.use_ros2 and self.ros2_bridge:
+            try:
+                bridge_state = self.ros2_bridge.get_world_state()
+                if bridge_state:
+                    self.world_state.update(bridge_state)
+            except Exception as e:
+                print(f"Warning: Failed to get world state: {e}")
+
+        results["state_changes"] = self.world_state
+        results["ros2_mode"] = self.use_ros2
+        return results
+
+    def _execute_step(self, step: dict) -> dict:
+        """Execute a single plan step."""
+        action = step.get("action", "unknown")
+        args = step.get("args", {})
+
+        result = {
+            "action": action,
+            "args": args,
+            "success": True,
+            "simulation": not self.use_ros2,
+            "output": ""
+        }
+
+        # Try ROS2 execution first if available
+        if self.use_ros2 and self.ros2_bridge:
+            ros2_result = self._execute_via_ros2(action, args)
+            if ros2_result:
+                result.update(ros2_result)
+                result["simulation"] = False
+                self.execution_log.append(result)
+                return result
+
+        # Fall back to simulation
+        if action.startswith("nav2."):
+            result["output"] = self._simulate_navigation(action, args)
+        elif action.startswith("arm."):
+            result["output"] = self._simulate_manipulation(action, args)
+        elif action.startswith("perception."):
+            result["output"] = self._simulate_perception(action, args)
+        elif action.startswith("skill."):
+            result["output"] = self._simulate_skill(action, args)
+        else:
+            result["output"] = f"[SIMULATION] Executed {action} with args: {json.dumps(args)}"
+            result["success"] = True
+
+        self.execution_log.append(result)
+        return result
+
+    def _execute_via_ros2(self, action: str, args: dict) -> Optional[dict]:
+        """Execute action via ROS2 bridge."""
+        if not self.ros2_bridge:
+            return None
+
+        try:
+            # Map action to ROS2 topic
+            if action.startswith("nav2.goto"):
+                # Publish to navigation topic
+                target_pose = args.get("target_pose", args.get("location", {}))
+                if isinstance(target_pose, str):
+                    # Named location, would need resolution
+                    return None
+
+                msg = {
+                    "target_pose": {
+                        "position": {"x": target_pose.get("x", 0), "y": target_pose.get("y", 0), "z": 0},
+                        "orientation": {"x": 0, "y": 0, "z": target_pose.get("theta", 0), "w": 1}
+                    }
+                }
+                self.ros2_bridge.publish("/navigate_to_position/goal", msg)
+                return {
+                    "success": True,
+                    "output": f"[ROS2] Sent navigation goal to ({target_pose.get('x', 0)}, {target_pose.get('y', 0)})"
+                }
+
+            elif action.startswith("skill."):
+                # Execute skill via ROS2 action
+                msg = {"skill": action, "args": args}
+                self.ros2_bridge.publish("/skill/execute", msg)
+                return {
+                    "success": True,
+                    "output": f"[ROS2] Sent skill execution request: {action}"
+                }
+
+            else:
+                # Generic action
+                msg = {"action": action, "args": args}
+                self.ros2_bridge.publish("/tool/execute", msg)
+                return {
+                    "success": True,
+                    "output": f"[ROS2] Sent action request: {action}"
+                }
+
+        except Exception as e:
+            print(f"ROS2 execution failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _execute_tool(self, tool_call: dict) -> dict:
+        """Execute a direct tool call."""
+        tool = tool_call.get("tool", "unknown")
+        args = tool_call.get("args", {})
+
+        # Try ROS2 first
+        if self.use_ros2 and self.ros2_bridge:
+            ros2_result = self._execute_via_ros2(tool, args)
+            if ros2_result:
+                ros2_result["action"] = tool
+                ros2_result["args"] = args
+                return ros2_result
+
+        # Simulation fallback
+        return {
+            "action": tool,
+            "args": args,
+            "success": True,
+            "simulation": True,
+            "output": f"[SIMULATION] Tool {tool} executed with args: {json.dumps(args)}"
+        }
+
+    def _simulate_navigation(self, action: str, args: dict) -> str:
+        """Simulate navigation actions."""
+        import random
+        import time
+
+        if action == "nav2.goto":
+            target = args.get("target_pose", {})
+            x, y = target.get("x", 0), target.get("y", 0)
+
+            # Simulate movement
+            old_x, old_y = self.world_state["robot_position"]["x"], self.world_state["robot_position"]["y"]
+            self.world_state["robot_position"]["x"] = x
+            self.world_state["robot_position"]["y"] = y
+            self.world_state["robot_position"]["theta"] = target.get("theta", 0)
+
+            distance = ((x - old_x)**2 + (y - old_y)**2)**0.5
+            duration = round(distance * 0.5 + random.uniform(0.5, 2.0), 2)
+
+            return f"[SIMULATION] 导航到 ({x}, {y}), 距离 {distance:.2f}m, 耗时 {duration}s"
+
+        elif action == "nav2.stop":
+            return "[SIMULATION] 已停止导航"
+
+        return f"[SIMULATION] 导航动作 {action}"
+
+    def _simulate_manipulation(self, action: str, args: dict) -> str:
+        """Simulate manipulation actions."""
+        import random
+
+        if action == "arm.move_to":
+            pose = args.get("target_pose", {})
+            return f"[SIMULATION] 机械臂移动到位姿: {json.dumps(pose)}"
+
+        elif action == "arm.grasp":
+            self.world_state["holding_object"] = True
+            self.world_state["arm_state"] = "HOLDING"
+            return "[SIMULATION] 抓取成功，当前持有物体"
+
+        elif action == "arm.release":
+            self.world_state["holding_object"] = False
+            self.world_state["arm_state"] = "READY"
+            return "[SIMULATION] 物体已释放"
+
+        return f"[SIMULATION] 操作动作 {action}"
+
+    def _simulate_perception(self, action: str, args: dict) -> str:
+        """Simulate perception actions."""
+        import random
+
+        if action == "perception.detect":
+            obj_type = args.get("object_type", "unknown")
+            # Simulate detection result
+            detected = random.random() > 0.2  # 80% success rate
+            if detected:
+                x = round(random.uniform(-2, 2), 2)
+                y = round(random.uniform(-2, 2), 2)
+                return f"[SIMULATION] 检测到 {obj_type} 在位置 ({x}, {y})"
+            else:
+                return f"[SIMULATION] 未检测到 {obj_type}"
+
+        return f"[SIMULATION] 感知动作 {action}"
+
+    def _simulate_skill(self, action: str, args: dict) -> str:
+        """Simulate composite skills."""
+        if action == "skill.pick_object":
+            obj_id = args.get("object_id", "unknown")
+            return f"[SIMULATION] 拾取技能执行: {obj_id}\n  → 检测物体\n  → 移动机械臂\n  → 执行抓取"
+
+        elif action == "skill.deliver_object":
+            target = args.get("target_location", {})
+            return f"[SIMULATION] 递送技能执行到 {target}\n  → 导航到目标\n  → 移动机械臂\n  → 释放物体"
+
+        elif action == "skill.approach_for_pick":
+            obj_id = args.get("object_id", "unknown")
+            return f"[SIMULATION] 接近物体 {obj_id} 准备拾取"
+
+        return f"[SIMULATION] 复合技能 {action}"
+
+
+def parse_llm_response(content: str) -> dict:
+    """Parse LLM response and extract JSON."""
+    import re
+
+    # Try direct parse
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to extract JSON from markdown code block
+    code_block_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
+    matches = re.findall(code_block_pattern, content, re.DOTALL)
+
+    for match in matches:
+        try:
+            return json.loads(match.strip())
+        except json.JSONDecodeError:
+            continue
+
+    # Try to find JSON object
+    json_pattern = r'\{[\s\S]*\}'
+    matches = re.findall(json_pattern, content)
+
+    for match in matches:
+        try:
+            return json.loads(match)
+        except json.JSONDecodeError:
+            continue
+
+    # Return default structure
+    return {
+        "assistant_text": content,
+        "plan": [],
+        "tool_calls": [],
+        "memory_write": []
+    }
 
 
 # HTML Templates
@@ -308,6 +876,7 @@ BASE_TEMPLATE = """
             <h1>ROS2 Brain Agent</h1>
             <p>Dialog Management Console</p>
             <nav>
+                <a href="/chat" class="{{ 'active' if page == 'chat' else '' }}">Chat</a>
                 <a href="/" class="{{ 'active' if page == 'home' else '' }}">Sessions</a>
                 <a href="/stats" class="{{ 'active' if page == 'stats' else '' }}">Statistics</a>
             </nav>
@@ -349,6 +918,7 @@ SESSIONS_TEMPLATE = """
                     <td>{{ session.events }}</td>
                     <td class="timestamp">{{ session.last_update }}</td>
                     <td>
+                        <a href="/chat/{{ session.id }}" class="btn btn-primary btn-sm">Chat</a>
                         <a href="/session/{{ session.id }}" class="btn btn-primary btn-sm">View</a>
                         <a href="/session/{{ session.id }}/analyze" class="btn btn-primary btn-sm">Analyze</a>
                         <a href="/api/session/{{ session.id }}/export" class="btn btn-primary btn-sm">Export</a>
@@ -628,6 +1198,428 @@ STATS_TEMPLATE = """
 {% endif %}
 """
 
+CHAT_TEMPLATE = """
+<div class="chat-container">
+    <div class="chat-header">
+        <div class="session-info">
+            <span class="session-label">Session:</span>
+            <span class="session-id" id="currentSession">{{ session_id }}</span>
+            <button class="btn btn-primary btn-sm" onclick="newSession()">New Session</button>
+        </div>
+        <div class="provider-info">
+            <span class="badge badge-info">{{ provider_info }}</span>
+        </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+        {% if turns %}
+        {% for turn in turns %}
+        <div class="message {{ turn.speaker }}">
+            <div class="message-header">
+                <span class="speaker">{{ 'User' if turn.speaker == 'user' else 'Assistant' }}</span>
+                <span class="timestamp">{{ turn.ts }}</span>
+            </div>
+            <div class="message-content">{{ turn.text }}</div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="empty-chat">
+            <p>Start a new conversation</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="chat-input">
+        <form id="chatForm" onsubmit="sendMessage(event)">
+            <input type="text" id="userInput" placeholder="Type your message..." autocomplete="off">
+            <button type="submit" class="btn btn-primary" id="sendBtn">Send</button>
+        </form>
+    </div>
+</div>
+
+<style>
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 200px);
+    min-height: 500px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.chat-header {
+    padding: 15px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.session-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.session-label {
+    opacity: 0.8;
+}
+
+.session-id {
+    font-family: monospace;
+    background: rgba(255,255,255,0.2);
+    padding: 4px 10px;
+    border-radius: 4px;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #f8f9fa;
+}
+
+.message {
+    margin-bottom: 15px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    max-width: 80%;
+}
+
+.message.user {
+    background: #667eea;
+    color: white;
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+}
+
+.message.assistant {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-bottom-left-radius: 4px;
+}
+
+.message-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.message.user .message-header {
+    color: rgba(255,255,255,0.8);
+}
+
+.message.assistant .message-header {
+    color: #666;
+}
+
+.message-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+}
+
+.empty-chat {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #999;
+}
+
+.chat-input {
+    padding: 15px 20px;
+    background: white;
+    border-top: 1px solid #eee;
+}
+
+.chat-input form {
+    display: flex;
+    gap: 10px;
+}
+
+.chat-input input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+.chat-input input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.chat-input button {
+    padding: 12px 24px;
+}
+
+.typing-indicator {
+    display: none;
+    padding: 12px 16px;
+    color: #666;
+    font-style: italic;
+}
+
+.typing-indicator.active {
+    display: block;
+}
+
+.provider-info {
+    font-size: 12px;
+}
+
+/* Plan and Execution Styles */
+.plan-section, .execution-section, .memory-section {
+    margin-top: 12px;
+    padding: 10px;
+    background: rgba(0,0,0,0.05);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.plan-section strong, .execution-section strong, .memory-section strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #667eea;
+}
+
+.plan-section ol, .execution-section ul, .memory-section ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.plan-section li, .execution-section li, .memory-section li {
+    margin: 4px 0;
+    line-height: 1.4;
+}
+
+.plan-section code, .memory-section code {
+    background: rgba(102, 126, 234, 0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Monaco', monospace;
+    font-size: 12px;
+}
+
+.message .badge {
+    background: #28a745;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    margin-left: 8px;
+}
+</style>
+
+<script>
+let currentSession = '{{ session_id }}';
+
+function scrollToBottom() {
+    const container = document.getElementById('chatMessages');
+    container.scrollTop = container.scrollHeight;
+}
+
+function addMessage(speaker, text, ts) {
+    const container = document.getElementById('chatMessages');
+
+    // Remove empty state if present
+    const emptyState = container.querySelector('.empty-chat');
+    if (emptyState) {
+        emptyState.remove();
+    }
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${speaker}`;
+    messageDiv.innerHTML = `
+        <div class="message-header">
+            <span class="speaker">${speaker === 'user' ? 'User' : 'Assistant'}</span>
+            <span class="timestamp">${ts}</span>
+        </div>
+        <div class="message-content">${escapeHtml(text)}</div>
+    `;
+
+    container.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showTyping() {
+    const container = document.getElementById('chatMessages');
+    const typingDiv = document.createElement('div');
+    typingDiv.className = 'message assistant typing';
+    typingDiv.id = 'typingIndicator';
+    typingDiv.innerHTML = '<div class="message-content">...</div>';
+    container.appendChild(typingDiv);
+    scrollToBottom();
+}
+
+function hideTyping() {
+    const typing = document.getElementById('typingIndicator');
+    if (typing) typing.remove();
+}
+
+function addStructuredMessage(speaker, data, ts) {
+    const container = document.getElementById('chatMessages');
+
+    // Remove empty state if present
+    const emptyState = container.querySelector('.empty-chat');
+    if (emptyState) {
+        emptyState.remove();
+    }
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${speaker}`;
+
+    let contentHtml = '';
+
+    if (speaker === 'assistant' && typeof data === 'object') {
+        // Assistant message with plan and execution
+        contentHtml = `<div class="message-content">${escapeHtml(data.response || '')}</div>`;
+
+        // Show plan if exists
+        if (data.plan && data.plan.length > 0) {
+            contentHtml += '<div class="plan-section"><strong>📋 规划:</strong><ol>';
+            data.plan.forEach(step => {
+                contentHtml += `<li><code>${step.action}</code> ${JSON.stringify(step.args || {})}</li>`;
+            });
+            contentHtml += '</ol></div>';
+        }
+
+        // Show execution result if exists
+        if (data.execution_result && data.execution_result.executed_steps) {
+            contentHtml += '<div class="execution-section"><strong>⚡ 执行结果 (仿真):</strong><ul>';
+            data.execution_result.executed_steps.forEach(step => {
+                contentHtml += `<li>${escapeHtml(step.output || step.action)}</li>`;
+            });
+            contentHtml += '</ul></div>';
+        }
+
+        // Show memory updates if exists
+        if (data.memory_write && data.memory_write.length > 0) {
+            contentHtml += '<div class="memory-section"><strong>📝 记忆更新:</strong><ul>';
+            data.memory_write.forEach(mem => {
+                contentHtml += `<li><code>${mem.key}</code>: ${escapeHtml(String(mem.value))}</li>`;
+            });
+            contentHtml += '</ul></div>';
+        }
+
+        messageDiv.innerHTML = `
+            <div class="message-header">
+                <span class="speaker">Assistant</span>
+                <span class="timestamp">${ts}</span>
+                <span class="badge">${data.dry_run ? '仿真模式' : '实机模式'}</span>
+            </div>
+            ${contentHtml}
+        `;
+    } else {
+        // Simple text message
+        const text = typeof data === 'string' ? data : data.response || '';
+        messageDiv.innerHTML = `
+            <div class="message-header">
+                <span class="speaker">${speaker === 'user' ? 'User' : 'Assistant'}</span>
+                <span class="timestamp">${ts}</span>
+            </div>
+            <div class="message-content">${escapeHtml(text)}</div>
+        `;
+    }
+
+    container.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+async function sendMessage(event) {
+    event.preventDefault();
+
+    const input = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const text = input.value.trim();
+
+    if (!text) return;
+
+    // Disable input
+    input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
+
+    // Add user message
+    addMessage('user', text, new Date().toLocaleTimeString());
+
+    // Show typing indicator
+    showTyping();
+
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: currentSession,
+                message: text,
+                dry_run: true
+            })
+        });
+
+        const data = await response.json();
+        hideTyping();
+
+        if (data.error) {
+            addMessage('assistant', 'Error: ' + data.error, data.ts || new Date().toLocaleTimeString());
+        } else {
+            addStructuredMessage('assistant', data, data.ts);
+        }
+    } catch (err) {
+        hideTyping();
+        addMessage('assistant', 'Network error: ' + err.message, new Date().toLocaleTimeString());
+    }
+
+    // Re-enable input
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+}
+
+async function newSession() {
+    const sessionName = prompt('Enter new session name:', 'session_' + Date.now());
+    if (!sessionName) return;
+
+    try {
+        const response = await fetch('/api/session/create', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_id: sessionName})
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            window.location.href = '/chat/' + data.session_id;
+        } else {
+            alert('Failed to create session: ' + data.error);
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+// Scroll to bottom on load
+scrollToBottom();
+
+// Focus input
+document.getElementById('userInput').focus();
+</script>
+"""
+
 
 def get_memory_store(base_path: Optional[str] = None) -> FileSystemMemoryStore:
     """Get memory store instance."""
@@ -715,6 +1707,371 @@ def create_app(memory_path: Optional[str] = None) -> 'Flask':
             page='stats',
             stats=stats_data
         )
+
+    @app.route('/chat')
+    def chat_new():
+        """Redirect to a new chat session."""
+        import time
+        session_id = f"chat_{int(time.time())}"
+        return redirect(f'/chat/{session_id}')
+
+    @app.route('/chat/<session_id>')
+    def chat_session(session_id):
+        """Chat interface for a session."""
+        # Create session if not exists
+        if not store.session_exists(session_id):
+            store.create_session(session_id)
+
+        turns = store.get_all_turns(session_id)
+        turns_data = []
+        for t in turns:
+            turns_data.append({
+                'turn_id': t.turn_id,
+                'ts': format_timestamp(t.ts),
+                'speaker': t.speaker,
+                'text': t.text
+            })
+
+        # Get provider info
+        provider_info = 'Mock Provider'
+        try:
+            provider = get_llm_provider()
+            if hasattr(provider, 'config'):
+                provider_info = provider.config.model
+        except:
+            pass
+
+        return render_template_string(
+            BASE_TEMPLATE.replace('{% block content %}{% endblock %}', CHAT_TEMPLATE),
+            title=f'Chat - {session_id}',
+            page='chat',
+            session_id=session_id,
+            turns=turns_data,
+            provider_info=provider_info
+        )
+
+    # Chat API endpoints
+    @app.route('/api/session/create', methods=['POST'])
+    def api_create_session():
+        """Create a new session."""
+        data = request.get_json() or {}
+        session_id = data.get('session_id')
+
+        if not session_id:
+            import time
+            session_id = f"chat_{int(time.time())}"
+
+        if store.session_exists(session_id):
+            return jsonify({'success': False, 'error': 'Session already exists'})
+
+        store.create_session(session_id)
+        return jsonify({'success': True, 'session_id': session_id})
+
+    @app.route('/api/world_state', methods=['GET'])
+    def api_get_world_state():
+        """Get current robot world state."""
+        bridge = get_ros2_bridge()
+
+        if hasattr(bridge, 'get_world_state'):
+            state = bridge.get_world_state()
+        else:
+            state = _world_state
+
+        return jsonify({
+            'success': True,
+            'state': state,
+            'ros2_connected': hasattr(bridge, 'connected') and bridge.connected
+        })
+
+    @app.route('/api/mode', methods=['GET', 'POST'])
+    def api_mode():
+        """Get or set execution mode (simulation/ros2)."""
+        global _ros2_bridge
+
+        if request.method == 'GET':
+            try:
+                bridge = get_ros2_bridge()
+                is_ros2 = hasattr(bridge, 'connected') and getattr(bridge, 'connected', False)
+                ws_available = 'WEBSOCKET_AVAILABLE' in globals() and WEBSOCKET_AVAILABLE
+            except:
+                is_ros2 = False
+                ws_available = False
+
+            return jsonify({
+                'mode': 'ros2' if is_ros2 else 'simulation',
+                'ros2_available': ws_available,
+                'rosbridge_url': os.environ.get('ROSBRIDGE_URL', 'ws://localhost:9090')
+            })
+
+        elif request.method == 'POST':
+            data = request.get_json() or {}
+            mode = data.get('mode', 'simulation')
+            rosbridge_url = data.get('rosbridge_url')
+
+            if rosbridge_url:
+                os.environ['ROSBRIDGE_URL'] = rosbridge_url
+
+            if mode == 'ros2':
+                os.environ['USE_SIMULATION'] = 'false'
+                _ros2_bridge = None  # Reset bridge
+                bridge = get_ros2_bridge()
+                connected = hasattr(bridge, 'connected') and bridge.connected
+                return jsonify({
+                    'success': connected,
+                    'mode': 'ros2',
+                    'connected': connected,
+                    'message': 'Connected to ROS2' if connected else 'Failed to connect to ROS2, using simulation'
+                })
+            else:
+                os.environ['USE_SIMULATION'] = 'true'
+                _ros2_bridge = None  # Reset bridge
+                return jsonify({
+                    'success': True,
+                    'mode': 'simulation',
+                    'message': 'Switched to simulation mode'
+                })
+
+    @app.route('/api/chat', methods=['POST'])
+    def api_chat():
+        """Send a message and get a Brain Agent response with planning and execution."""
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        session_id = data.get('session_id', 'default')
+        message = data.get('message', '')
+        dry_run = data.get('dry_run', True)  # Default to simulation mode
+
+        if not message:
+            return jsonify({'error': 'No message provided'}), 400
+
+        # Ensure session exists
+        if not store.session_exists(session_id):
+            store.create_session(session_id)
+
+        # Get user facts for context
+        user_facts = {}
+        try:
+            facts = store.get_session_facts(session_id)
+            user_facts = facts.facts if facts else {}
+        except:
+            pass
+
+        # Build system prompt with tools and state
+        tools_description = get_tools_description()
+        system_prompt = get_system_prompt(tools_description, _world_state, user_facts)
+
+        # Save user turn
+        turn_id = store.get_next_turn_id(session_id)
+        user_ts = MemoryStore.get_timestamp()
+        user_turn = Turn(
+            turn_id=turn_id,
+            ts=user_ts,
+            speaker='user',
+            text=message
+        )
+        store.append_turn(session_id, user_turn)
+
+        # Publish user turn event to ROS2
+        publish_event_to_ros2(
+            event_type="turn_start",
+            session_id=session_id,
+            source="user",
+            payload={"turn_id": turn_id, "text": message},
+            success=True
+        )
+
+        # Get conversation history for context
+        recent_turns = store.get_recent_turns(session_id, limit=10)
+        messages = [{'role': 'system', 'content': system_prompt}]
+        for t in recent_turns:
+            role = 'user' if t.speaker == 'user' else 'assistant'
+            # For assistant turns, use the original text not the formatted one
+            messages.append({'role': role, 'content': t.text})
+
+        # Phase 1: Intent Understanding & Planning
+        try:
+            provider = get_llm_provider()
+            response = provider.call(messages)
+            llm_output = parse_llm_response(response.content)
+
+            # Extract structured output
+            assistant_text = llm_output.get('assistant_text', response.content)
+            plan = llm_output.get('plan', [])
+            tool_calls = llm_output.get('tool_calls', [])
+            memory_write = llm_output.get('memory_write', [])
+
+            # Save LLM event
+            llm_event_id = MemoryStore.generate_event_id()
+            llm_ts = MemoryStore.get_timestamp()
+            llm_payload = {
+                'model': response.model,
+                'usage': response.usage,
+                'plan': plan,
+                'tool_calls': tool_calls
+            }
+            event = Event(
+                event_id=llm_event_id,
+                ts=llm_ts,
+                event_type='llm_result',
+                session_id=session_id,
+                payload=llm_payload,
+                duration_ms=response.duration_ms,
+                success=True
+            )
+            store.append_event(session_id, event)
+
+            # Publish LLM result event to ROS2
+            publish_event_to_ros2(
+                event_type="llm_result",
+                session_id=session_id,
+                source="llm",
+                payload=llm_payload,
+                success=True,
+                duration_ms=response.duration_ms,
+                event_id=llm_event_id
+            )
+
+        except Exception as e:
+            # Log error
+            error_event_id = MemoryStore.generate_event_id()
+            error_ts = MemoryStore.get_timestamp()
+            event = Event(
+                event_id=error_event_id,
+                ts=error_ts,
+                event_type='llm_error',
+                session_id=session_id,
+                payload={},
+                duration_ms=0,
+                success=False,
+                error_message=str(e)
+            )
+            store.append_event(session_id, event)
+
+            # Publish error event to ROS2
+            publish_event_to_ros2(
+                event_type="error",
+                session_id=session_id,
+                source="llm",
+                payload={"error_type": "llm_error"},
+                success=False,
+                error_message=str(e),
+                event_id=error_event_id
+            )
+
+            return jsonify({
+                'error': f"LLM Error: {str(e)}",
+                'session_id': session_id,
+                'ts': format_timestamp(MemoryStore.get_timestamp())
+            })
+
+        # Phase 2: Execution (ROS2 or Simulation)
+        execution_result = None
+        if plan or tool_calls:
+            # Use ROS2 bridge if not in dry_run mode
+            use_ros2 = not dry_run
+            executor = SimulationExecutor(use_ros2=use_ros2)
+            execution_result = executor.execute(plan, tool_calls)
+
+            # Save execution event
+            exec_event_id = MemoryStore.generate_event_id()
+            exec_ts = MemoryStore.get_timestamp()
+            exec_payload = {
+                'plan': plan,
+                'tool_calls': tool_calls,
+                'execution_result': execution_result
+            }
+            exec_event = Event(
+                event_id=exec_event_id,
+                ts=exec_ts,
+                event_type='skill_execute',
+                session_id=session_id,
+                payload=exec_payload,
+                duration_ms=0,
+                success=execution_result.get('success', True)
+            )
+            store.append_event(session_id, exec_event)
+
+            # Publish skill execute event to ROS2
+            publish_event_to_ros2(
+                event_type="skill_execute",
+                session_id=session_id,
+                source="executor",
+                payload=exec_payload,
+                success=execution_result.get('success', True),
+                event_id=exec_event_id
+            )
+
+        # Phase 3: Memory Update
+        if memory_write:
+            for mem_op in memory_write:
+                key = mem_op.get('key')
+                value = mem_op.get('value')
+                op_type = mem_op.get('type', 'upsert')
+
+                if key and value:
+                    try:
+                        facts = store.get_session_facts(session_id)
+                        if op_type == 'upsert':
+                            facts.facts[key] = value
+                        elif op_type == 'delete' and key in facts.facts:
+                            del facts.facts[key]
+                        # Save facts
+                        store._save_session_facts(session_id, facts)
+                    except Exception as e:
+                        print(f"Warning: Failed to update memory: {e}")
+
+        # Build response text with execution results
+        response_text = assistant_text
+        if execution_result and execution_result.get('executed_steps'):
+            response_text += "\n\n--- 执行结果 (仿真模式) ---"
+            for step in execution_result['executed_steps']:
+                response_text += f"\n• {step.get('output', step.get('action', 'unknown'))}"
+
+        # Save assistant turn
+        assistant_ts = MemoryStore.get_timestamp()
+        assistant_turn = Turn(
+            turn_id=turn_id + 1,
+            ts=assistant_ts,
+            speaker='assistant',
+            text=response_text,
+            metadata={
+                'model': response.model,
+                'plan': plan,
+                'tool_calls': tool_calls,
+                'execution_result': execution_result
+            }
+        )
+        store.append_turn(session_id, assistant_turn)
+
+        # Publish turn_end event to ROS2
+        publish_event_to_ros2(
+            event_type="turn_end",
+            session_id=session_id,
+            source="llm",
+            payload={
+                'turn_id': turn_id + 1,
+                'text': assistant_text,
+                'plan': plan,
+                'tool_calls': tool_calls,
+                'execution_result': execution_result
+            },
+            success=True
+        )
+
+        return jsonify({
+            'response': assistant_text,
+            'full_response': response_text,
+            'plan': plan,
+            'tool_calls': tool_calls,
+            'execution_result': execution_result,
+            'memory_write': memory_write,
+            'session_id': session_id,
+            'turn_id': turn_id + 1,
+            'ts': format_timestamp(assistant_turn.ts),
+            'model': response.model,
+            'dry_run': dry_run
+        })
 
     @app.route('/session/<session_id>')
     def session_detail(session_id):

@@ -37,6 +37,26 @@ build_image() {
 
 # Start container
 start_container() {
+    # Load environment variables from .env file if exists
+    ENV_FILE="${PROJECT_DIR}/.env"
+    ENV_FLAGS=""
+
+    if [ -f "$ENV_FILE" ]; then
+        log_info "Loading environment from .env file..."
+        # Read and convert .env to docker -e flags
+        while IFS= read -r line || [ -z "$line" ]; do
+            # Skip comments and empty lines
+            [[ "$line" =~ ^#.* ]] && continue
+            [[ -z "$line" ]] && continue
+            # Parse KEY=VALUE
+            key=$(echo "$line" | cut -d'=' -f1)
+            value=$(echo "$line" | cut -d'=' -f2-)
+            if [ -n "$key" ] && [ -n "$value" ]; then
+                ENV_FLAGS="$ENV_FLAGS -e $key=$value"
+            fi
+        done < "$ENV_FILE"
+    fi
+
     # Check if container exists
     if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
@@ -50,15 +70,28 @@ start_container() {
         docker run -d \
             --name ${CONTAINER_NAME} \
             --restart unless-stopped \
-            --net=host \
+            -p 8081:8080 \
+            -p 9090:9090 \
             -v ${PROJECT_DIR}:${WORKSPACE_DIR}/src/ros2-brain-agent \
+            -v ${PROJECT_DIR}/memory:${WORKSPACE_DIR}/memory \
+            -v ${PROJECT_DIR}/configs:${WORKSPACE_DIR}/configs \
+            -v ${PROJECT_DIR}/scripts:${WORKSPACE_DIR}/scripts \
             -w ${WORKSPACE_DIR} \
-            -e LLM_API_KEY=mock \
-            -e LLM_PROVIDER=mock \
+            $ENV_FLAGS \
+            -e USE_SIMULATION=false \
+            -e ROSBRIDGE_URL=ws://localhost:9090 \
             ${IMAGE_NAME}:latest \
-            bash -c "source /opt/ros/humble/setup.bash && tail -f /dev/null"
+            bash -c "
+                source /opt/ros/humble/setup.bash &&
+                ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 &
+                sleep 2 &&
+                tail -f /dev/null
+            "
     fi
-    log_info "Container started. Use './run_docker.sh shell' to enter."
+    log_info "Container started."
+    log_info "  - Web UI: http://localhost:8081"
+    log_info "  - Rosbridge: ws://localhost:9090"
+    log_info "Use './run_docker.sh shell' to enter."
 }
 
 # Stop container
@@ -275,6 +308,29 @@ show_logs() {
     docker logs ${CONTAINER_NAME} --tail 100 -f
 }
 
+# Start web UI
+start_web() {
+    log_info "Starting Web UI..."
+    docker exec -d ${CONTAINER_NAME} bash -c "
+        source /opt/ros/humble/setup.bash &&
+        cd ${WORKSPACE_DIR} &&
+        export PYTHONPATH=${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_brain:${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_cerebellum:${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_io:${WORKSPACE_DIR}/scripts:\$PYTHONPATH &&
+        pip install flask python-dotenv websocket-client -q &&
+        python3 scripts/dialog_web.py --host 0.0.0.0 --port 8080
+    "
+    sleep 2
+    log_info "Web UI started at http://localhost:8081"
+}
+
+# Monitor events
+monitor_events() {
+    log_info "Starting event monitor..."
+    docker exec -it ${CONTAINER_NAME} bash -c "
+        source /opt/ros/humble/setup.bash &&
+        ros2 topic echo /dialog/events --full-length
+    "
+}
+
 # Print usage
 print_usage() {
     echo "ROS2 Brain Agent Docker Development Environment"
@@ -282,20 +338,26 @@ print_usage() {
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
-    echo "  build     Build Docker image"
-    echo "  start     Start container"
-    echo "  stop      Stop container"
-    echo "  shell     Enter container shell"
-    echo "  build_ws  Build ROS2 workspace inside container"
-    echo "  test      Run all tests"
-    echo "  quick     Run quick tests (unit tests only)"
+    echo "  build       Build Docker image"
+    echo "  start       Start container"
+    echo "  stop        Stop container"
+    echo "  shell       Enter container shell"
+    echo "  build_ws    Build ROS2 workspace inside container"
+    echo "  test        Run all tests"
+    echo "  quick       Run quick tests (unit tests only)"
     echo "  integration Run full integration test"
-    echo "  logs      Show container logs"
-    echo "  clean     Remove container and images"
-    echo "  all       Build image, start container, build workspace, run tests"
+    echo "  logs        Show container logs"
+    echo "  clean       Remove container and images"
+    echo "  all         Build image, start container, build workspace, run tests"
+    echo ""
+    echo "  web         Start Web UI (port 8080)"
+    echo "  monitor     Monitor ROS2 events"
     echo ""
     echo "Examples:"
     echo "  $0 build          # Build Docker image"
+    echo "  $0 start          # Start container with ports exposed"
+    echo "  $0 web            # Start Web UI"
+    echo "  $0 monitor        # Listen to /dialog/events"
     echo "  $0 shell          # Enter container"
     echo "  $0 test           # Run all tests"
     echo "  $0 all            # Full setup and test"
@@ -309,7 +371,12 @@ full_setup() {
     sleep 2
     build_workspace
     run_tests
-    log_info "Full setup complete! Use './run_docker.sh shell' to enter the container."
+    log_info "Full setup complete!"
+    log_info ""
+    log_info "To start the Web UI:"
+    log_info "  ./run_docker.sh web"
+    log_info ""
+    log_info "Then open http://localhost:8081 in your browser"
 }
 
 # Main
@@ -346,6 +413,12 @@ case "${1:-}" in
         ;;
     all)
         full_setup
+        ;;
+    web)
+        start_web
+        ;;
+    monitor)
+        monitor_events
         ;;
     *)
         print_usage
