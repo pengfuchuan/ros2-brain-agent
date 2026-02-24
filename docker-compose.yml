@@ -1,31 +1,64 @@
 version: '3.8'
 
 services:
+  # ROS2 Brain Agent Container
   ros2-brain-agent:
+    image: ros2-brain-agent:latest
+    container_name: ros2-brain-agent
     build:
       context: .
       dockerfile: Dockerfile
-    image: ros2-brain-agent:latest
-    container_name: ros2-brain-agent
-    restart: unless-stopped
-    network_mode: host
-
+    ports:
+      - "9090:9090"   # rosbridge WebSocket
+      - "11311:11311" # rosbridge HTTP
+      - "8081:8080"   # Web UI
     volumes:
-      - .:/ros2_ws/src/ros2-brain-agent
-
+      - ./memory:/ros2_ws/memory
+      - ./configs:/ros2_ws/configs
+      - ./scripts:/ros2_ws/scripts
+      - ./.env:/ros2_ws/.env
     environment:
-      - LLM_API_KEY=mock
-      - LLM_PROVIDER=mock
-      - LLM_BASE_URL=
       - ROS_DOMAIN_ID=0
-      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /ros2_ws/install/setup.bash &&
+        ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 &
+        sleep 2 &&
+        ros2 launch cmm_brain brain_agent.launch.py memory_path:=/ros2_ws/memory dry_run:=true
+      "
+    networks:
+      - brain-agent-network
 
-    working_dir: /ros2_ws
+  # Web UI Service (optional, can run locally)
+  web-ui:
+    image: python:3.11-slim
+    container_name: brain-agent-web-ui
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./:/app
+      - ./memory:/app/memory
+      - ./.env:/app/.env
+    working_dir: /app
+    environment:
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL}
+      - ROSBRIDGE_URL=ws://ros2-brain-agent:9090
+    command: >
+      bash -c "
+        pip install flask pyyaml python-dotenv &&
+        python scripts/dialog_web.py --host 0.0.0.0 --port 8080
+      "
+    depends_on:
+      - ros2-brain-agent
+    networks:
+      - brain-agent-network
 
-    command: bash -c "source /opt/ros/humble/setup.bash && tail -f /dev/null"
-
-    # For GUI applications (optional)
-    # volumes:
-    #   - /tmp/.X11-unix:/tmp/.X11-unix
-    # environment:
-    #   - DISPLAY=${DISPLAY}
+networks:
+  brain-agent-network:
+    driver: bridge
