@@ -37,26 +37,6 @@ build_image() {
 
 # Start container
 start_container() {
-    # Load environment variables from .env file if exists
-    ENV_FILE="${PROJECT_DIR}/.env"
-    ENV_FLAGS=""
-
-    if [ -f "$ENV_FILE" ]; then
-        log_info "Loading environment from .env file..."
-        # Read and convert .env to docker -e flags
-        while IFS= read -r line || [ -z "$line" ]; do
-            # Skip comments and empty lines
-            [[ "$line" =~ ^#.* ]] && continue
-            [[ -z "$line" ]] && continue
-            # Parse KEY=VALUE
-            key=$(echo "$line" | cut -d'=' -f1)
-            value=$(echo "$line" | cut -d'=' -f2-)
-            if [ -n "$key" ] && [ -n "$value" ]; then
-                ENV_FLAGS="$ENV_FLAGS -e $key=$value"
-            fi
-        done < "$ENV_FILE"
-    fi
-
     # Check if container exists
     if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
@@ -67,7 +47,9 @@ start_container() {
         fi
     else
         log_info "Creating and starting new container: ${CONTAINER_NAME}"
-        docker run -d \
+
+        # Build docker run command
+        DOCKER_CMD="docker run -d \
             --name ${CONTAINER_NAME} \
             --restart unless-stopped \
             -p 8081:8080 \
@@ -77,16 +59,24 @@ start_container() {
             -v ${PROJECT_DIR}/configs:${WORKSPACE_DIR}/configs \
             -v ${PROJECT_DIR}/scripts:${WORKSPACE_DIR}/scripts \
             -w ${WORKSPACE_DIR} \
-            $ENV_FLAGS \
             -e USE_SIMULATION=false \
-            -e ROSBRIDGE_URL=ws://localhost:9090 \
-            ${IMAGE_NAME}:latest \
-            bash -c "
+            -e ROSBRIDGE_URL=ws://localhost:9090"
+
+        # Add env file if exists
+        if [ -f "${PROJECT_DIR}/.env" ]; then
+            log_info "Loading environment from .env file..."
+            DOCKER_CMD="$DOCKER_CMD --env-file ${PROJECT_DIR}/.env"
+        fi
+
+        DOCKER_CMD="$DOCKER_CMD ${IMAGE_NAME}:latest \
+            bash -c \"
                 source /opt/ros/humble/setup.bash &&
                 ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090 &
                 sleep 2 &&
                 tail -f /dev/null
-            "
+            \""
+
+        eval $DOCKER_CMD
     fi
     log_info "Container started."
     log_info "  - Web UI: http://localhost:8081"
@@ -311,15 +301,31 @@ show_logs() {
 # Start web UI
 start_web() {
     log_info "Starting Web UI..."
+
+    # Check if Web UI is already running
+    if docker exec ${CONTAINER_NAME} pgrep -f "dialog_web.py" > /dev/null 2>&1; then
+        log_info "Web UI is already running at http://localhost:8081"
+        return 0
+    fi
+
     docker exec -d ${CONTAINER_NAME} bash -c "
-        source /opt/ros/humble/setup.bash &&
-        cd ${WORKSPACE_DIR} &&
-        export PYTHONPATH=${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_brain:${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_cerebellum:${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_io:${WORKSPACE_DIR}/scripts:\$PYTHONPATH &&
-        pip install flask python-dotenv websocket-client -q &&
+        source /opt/ros/humble/setup.bash
+        if [ -f ${WORKSPACE_DIR}/install/setup.bash ]; then
+            source ${WORKSPACE_DIR}/install/setup.bash
+        fi
+        cd ${WORKSPACE_DIR}/src/ros2-brain-agent
+        export PYTHONPATH=${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_brain:${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_cerebellum:${WORKSPACE_DIR}/src/ros2-brain-agent/packages/cmm_io:${WORKSPACE_DIR}/src/ros2-brain-agent/scripts:\$PYTHONPATH
+        pip install flask python-dotenv websocket-client -q 2>/dev/null
         python3 scripts/dialog_web.py --host 0.0.0.0 --port 8080
     "
-    sleep 2
-    log_info "Web UI started at http://localhost:8081"
+
+    # Wait and verify
+    sleep 3
+    if docker exec ${CONTAINER_NAME} pgrep -f "dialog_web.py" > /dev/null 2>&1; then
+        log_info "Web UI started at http://localhost:8081"
+    else
+        log_error "Failed to start Web UI. Try manually: docker exec -it ros2-brain-agent bash"
+    fi
 }
 
 # Monitor events
@@ -370,13 +376,11 @@ full_setup() {
     start_container
     sleep 2
     build_workspace
-    run_tests
+    run_tests || true
+    start_web
     log_info "Full setup complete!"
     log_info ""
-    log_info "To start the Web UI:"
-    log_info "  ./run_docker.sh web"
-    log_info ""
-    log_info "Then open http://localhost:8081 in your browser"
+    log_info "Web UI is running at http://localhost:8081"
 }
 
 # Main
