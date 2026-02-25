@@ -87,29 +87,35 @@ LLM_MODEL=qwen3-max-2026-01-23
 ### 2. 使用 Docker（推荐）
 
 ```bash
-# 一键构建、启动并运行测试
+# 一键构建、启动、测试并启动 Web UI
 ./run_docker.sh all
 
-# 或者分步执行：
+# 完成后访问：
+# - Web UI: http://localhost:8081
+# - Rosbridge: ws://localhost:9090
+```
+
+**或分步执行：**
+
+```bash
 ./run_docker.sh build      # 构建 Docker 镜像
 ./run_docker.sh start      # 启动容器（端口 8081, 9090）
 ./run_docker.sh build_ws   # 构建 ROS2 工作空间
-./run_docker.sh test       # 运行测试
+./run_docker.sh test       # 运行测试（16+ 单元测试）
+./run_docker.sh web        # 启动 Web UI
 
-# 启动 Web UI
-./run_docker.sh web
-
-# 监听 ROS2 事件
-./run_docker.sh monitor
-
-# 进入容器 shell
-./run_docker.sh shell
+# 其他常用命令：
+./run_docker.sh monitor    # 监听 ROS2 事件
+./run_docker.sh shell      # 进入容器 shell
+./run_docker.sh logs       # 查看容器日志
+./run_docker.sh stop       # 停止容器
 ```
 
 #### Docker 命令一览
 
 | 命令 | 说明 |
 |------|------|
+| `./run_docker.sh all` | 一键构建、启动、测试、启动 Web UI |
 | `./run_docker.sh build` | 构建 Docker 镜像 |
 | `./run_docker.sh start` | 启动容器 |
 | `./run_docker.sh stop` | 停止容器 |
@@ -117,9 +123,9 @@ LLM_MODEL=qwen3-max-2026-01-23
 | `./run_docker.sh web` | 启动 Web UI |
 | `./run_docker.sh monitor` | 监听 ROS2 事件 |
 | `./run_docker.sh build_ws` | 构建 ROS2 工作空间 |
-| `./run_docker.sh test` | 运行所有测试 |
+| `./run_docker.sh test` | 运行所有测试（16+ 单元测试） |
+| `./run_docker.sh quick` | 快速单元测试 |
 | `./run_docker.sh integration` | 完整集成测试 |
-| `./run_docker.sh all` | 一键构建、启动、测试 |
 | `./run_docker.sh logs` | 查看容器日志 |
 | `./run_docker.sh clean` | 清理容器和镜像 |
 
@@ -270,12 +276,14 @@ ros2-brain-agent/
 │   ├── tools.yaml           # 工具注册表
 │   ├── providers.yaml       # LLM 提供者配置
 │   └── logging.yaml         # 日志配置
+├── tests/                   # 单元测试（16+ 测试）
 ├── launch/                  # 启动文件
 ├── memory/                  # 记忆存储目录
 ├── docs/                    # 文档
 │   ├── ROS2_COMMANDS.md     # ROS2 命令参考
-│   └── TEST_DEMO.md         # 测试演示指南
-├── .env                     # LLM API 配置
+│   ├── TEST_DEMO.md         # 测试演示指南
+│   └── project-requirements/ # 项目需求文档
+├── .env.example             # 环境变量模板
 ├── docker-compose.yml       # Docker Compose 配置
 └── run_docker.sh            # Docker 管理脚本
 ```
@@ -283,10 +291,15 @@ ros2-brain-agent/
 ## 测试
 
 ```bash
-./run_docker.sh test           # 所有测试
-./run_docker.sh integration    # 集成测试
-./run_docker.sh quick          # 快速单元测试
+./run_docker.sh test           # 运行所有测试（16+ 单元测试）
+./run_docker.sh quick          # 仅快速单元测试
+./run_docker.sh integration    # 完整集成测试
 ```
+
+**测试覆盖：**
+- 记忆存储（FileSystemMemoryStore）
+- LLM 提供者（MockLLMProvider、JSONSchemaValidator）
+- ROS2 节点（Memory Node 等）
 
 ## 文档
 
