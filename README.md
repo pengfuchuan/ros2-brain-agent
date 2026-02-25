@@ -74,33 +74,31 @@ LLM_MODEL=qwen3-max-2026-01-23
 ### 2. Using Docker (Recommended)
 
 ```bash
-# One-click build, start, and test
+# One-click build, start, test, and launch Web UI
 ./run_docker.sh all
 
-# Or step by step:
-./run_docker.sh build      # Build Docker image
-./run_docker.sh start      # Start container with port 8080, 9090 exposed
-./run_docker.sh build_ws   # Build ROS2 workspace
-./run_docker.sh test       # Run tests
-
-# Start Web UI
-./run_docker.sh web
-
-# Monitor ROS2 events
-./run_docker.sh monitor
+# After completion, access:
+# - Web UI: http://localhost:8081
+# - Rosbridge: ws://localhost:9090
 ```
 
-### 3. Using Docker Compose
+**Or step by step:**
 
 ```bash
-# Start all services (rosbridge + ROS2 nodes)
-docker-compose up -d
+./run_docker.sh build      # Build Docker image
+./run_docker.sh start      # Start container (ports 8081, 9090)
+./run_docker.sh build_ws   # Build ROS2 workspace
+./run_docker.sh test       # Run tests (16+ unit tests)
+./run_docker.sh web        # Start Web UI
 
-# View logs
-docker-compose logs -f
+# Other useful commands:
+./run_docker.sh monitor    # Monitor ROS2 events
+./run_docker.sh shell      # Enter container shell
+./run_docker.sh logs       # View container logs
+./run_docker.sh stop       # Stop container
 ```
 
-### 4. Access Web UI
+### 3. Access Web UI
 
 Open http://localhost:8081 in your browser.
 
@@ -177,20 +175,27 @@ source install/setup.bash
 ```
 ros2-brain-agent/
 ├── packages/
-│   ├── cmm_interfaces/    # ROS2 message/service/action definitions
-│   ├── cmm_brain/          # Brain layer core nodes
-│   ├── cmm_cerebellum/     # Cerebellum layer skill servers
-│   └── cmm_io/             # Voice input/output (ASR/TTS)
+│   ├── cmm_interfaces/      # ROS2 message/service/action definitions
+│   ├── cmm_brain/           # Brain layer core nodes
+│   ├── cmm_cerebellum/      # Cerebellum layer skill servers
+│   └── cmm_io/              # Voice input/output (ASR/TTS)
 ├── scripts/
-│   ├── dialog_web.py       # Web UI server
-│   ├── monitor.py          # ROS2 topic monitor
-│   ├── event_viewer.py     # Formatted event viewer
+│   ├── dialog_web.py        # Web UI server
+│   ├── dialog_viewer.py     # CLI session viewer
+│   ├── monitor.py           # ROS2 topic monitor
+│   ├── event_viewer.py      # Formatted event viewer
 │   └── ros2_bridge_client.py # WebSocket bridge client
 ├── configs/
-│   ├── providers.yaml      # LLM provider configuration
-│   └── tools.yaml           # Tool definitions
+│   ├── providers.yaml       # LLM provider configuration
+│   ├── tools.yaml           # Tool definitions
+│   └── logging.yaml         # Logging configuration
+├── tests/                   # Unit tests (16+ tests)
+├── docs/                    # Documentation
+│   ├── ROS2_COMMANDS.md     # ROS2 commands reference
+│   ├── TEST_DEMO.md         # Test demo guide
+│   └── project-requirements/ # Project requirements
 ├── memory/                  # Memory storage directory
-├── .env                     # LLM API configuration
+├── .env.example             # Environment variables template
 ├── docker-compose.yml       # Docker Compose configuration
 └── run_docker.sh            # Docker management script
 ```
@@ -198,10 +203,15 @@ ros2-brain-agent/
 ## Testing
 
 ```bash
-./run_docker.sh test           # All tests
-./run_docker.sh integration    # Integration test
-./run_docker.sh quick          # Quick unit tests
+./run_docker.sh test           # Run all tests (16+ unit tests)
+./run_docker.sh quick          # Quick unit tests only
+./run_docker.sh integration    # Full integration test
 ```
+
+**Test Coverage:**
+- Memory store (FileSystemMemoryStore)
+- LLM provider (MockLLMProvider, JSONSchemaValidator)
+- ROS2 nodes (Memory Node, etc.)
 
 ## Documentation
 
@@ -292,33 +302,31 @@ LLM_MODEL=qwen3-max-2026-01-23
 ### 2. 使用 Docker（推荐）
 
 ```bash
-# 一键构建、启动并运行测试
+# 一键构建、启动、测试并启动 Web UI
 ./run_docker.sh all
 
-# 或者分步执行：
-./run_docker.sh build      # 构建 Docker 镜像
-./run_docker.sh start      # 启动容器（暴露端口 8080, 9090）
-./run_docker.sh build_ws   # 构建 ROS2 工作空间
-./run_docker.sh test       # 运行测试
-
-# 启动 Web UI
-./run_docker.sh web
-
-# 监听 ROS2 事件
-./run_docker.sh monitor
+# 完成后访问：
+# - Web UI: http://localhost:8081
+# - Rosbridge: ws://localhost:9090
 ```
 
-### 3. 使用 Docker Compose
+**或分步执行：**
 
 ```bash
-# 启动所有服务（rosbridge + ROS2 节点）
-docker-compose up -d
+./run_docker.sh build      # 构建 Docker 镜像
+./run_docker.sh start      # 启动容器（端口 8081, 9090）
+./run_docker.sh build_ws   # 构建 ROS2 工作空间
+./run_docker.sh test       # 运行测试（16+ 单元测试）
+./run_docker.sh web        # 启动 Web UI
 
-# 查看日志
-docker-compose logs -f
+# 其他常用命令：
+./run_docker.sh monitor    # 监听 ROS2 事件
+./run_docker.sh shell      # 进入容器 shell
+./run_docker.sh logs       # 查看容器日志
+./run_docker.sh stop       # 停止容器
 ```
 
-### 4. 访问 Web UI
+### 3. 访问 Web UI
 
 在浏览器中打开 http://localhost:8081
 
@@ -390,13 +398,48 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+## 项目结构
+
+```
+ros2-brain-agent/
+├── packages/
+│   ├── cmm_interfaces/      # ROS2 消息/服务/动作接口定义
+│   ├── cmm_brain/           # Brain 层核心节点
+│   ├── cmm_cerebellum/      # Cerebellum 层技能服务
+│   └── cmm_io/              # 语音输入输出（ASR/TTS）
+├── scripts/
+│   ├── dialog_web.py        # Web UI 服务器
+│   ├── dialog_viewer.py     # 命令行会话查看器
+│   ├── monitor.py           # ROS2 话题监控
+│   ├── event_viewer.py      # 格式化事件查看器
+│   └── ros2_bridge_client.py # WebSocket 桥接客户端
+├── configs/
+│   ├── providers.yaml       # LLM 提供者配置
+│   ├── tools.yaml           # 工具定义
+│   └── logging.yaml         # 日志配置
+├── tests/                   # 单元测试（16+ 测试）
+├── docs/                    # 文档
+│   ├── ROS2_COMMANDS.md     # ROS2 命令参考
+│   ├── TEST_DEMO.md         # 测试演示指南
+│   └── project-requirements/ # 项目需求文档
+├── memory/                  # 记忆存储目录
+├── .env.example             # 环境变量模板
+├── docker-compose.yml       # Docker Compose 配置
+└── run_docker.sh            # Docker 管理脚本
+```
+
 ## 测试
 
 ```bash
-./run_docker.sh test           # 所有测试
-./run_docker.sh integration    # 集成测试
-./run_docker.sh quick          # 快速单元测试
+./run_docker.sh test           # 运行所有测试（16+ 单元测试）
+./run_docker.sh quick          # 仅快速单元测试
+./run_docker.sh integration    # 完整集成测试
 ```
+
+**测试覆盖：**
+- 记忆存储（FileSystemMemoryStore）
+- LLM 提供者（MockLLMProvider、JSONSchemaValidator）
+- ROS2 节点（Memory Node 等）
 
 ## 文档
 
