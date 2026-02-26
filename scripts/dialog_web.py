@@ -1384,6 +1384,7 @@ SESSIONS_TEMPLATE = """
                     <th>Session ID</th>
                     <th>Turns</th>
                     <th>Events</th>
+                    <th>Created At</th>
                     <th>Last Update</th>
                     <th>Actions</th>
                 </tr>
@@ -1394,6 +1395,7 @@ SESSIONS_TEMPLATE = """
                     <td><code>{{ session.id }}</code></td>
                     <td>{{ session.turns }}</td>
                     <td>{{ session.events }}</td>
+                    <td class="timestamp">{{ session.created_at }}</td>
                     <td class="timestamp">{{ session.last_update }}</td>
                     <td>
                         <a href="/chat/{{ session.id }}" class="btn btn-primary btn-sm">Chat</a>
@@ -1752,8 +1754,52 @@ CHAT_TEMPLATE = """
             <div class="message-header">
                 <span class="speaker">{{ 'User' if turn.speaker == 'user' else 'Assistant' }}</span>
                 <span class="timestamp">{{ turn.ts }}</span>
+                {% if turn.speaker == 'assistant' and turn.metadata.get('execution_result') %}
+                <span class="badge">仿真模式</span>
+                {% endif %}
             </div>
-            <div class="message-content">{{ turn.text }}</div>
+            {% if turn.speaker == 'assistant' and turn.metadata.get('execution_result') %}
+                {# Extract response text without execution result to avoid duplication #}
+                {% set response_text = turn.text.split('--- 执行结果')[0].strip() %}
+                <div class="message-content">{{ response_text }}</div>
+            {% else %}
+                <div class="message-content">{{ turn.text }}</div>
+            {% endif %}
+            {% if turn.speaker == 'assistant' and turn.metadata %}
+                {# Render plan section #}
+                {% if turn.metadata.get('plan') and turn.metadata.plan | length > 0 %}
+                <div class="plan-section">
+                    <strong>📋 规划:</strong>
+                    <ol>
+                        {% for step in turn.metadata.plan %}
+                        <li><code>{{ step.action }}</code> {{ step.args | tojson }}</li>
+                        {% endfor %}
+                    </ol>
+                </div>
+                {% endif %}
+                {# Render execution result section #}
+                {% if turn.metadata.get('execution_result') and turn.metadata.execution_result.get('executed_steps') %}
+                <div class="execution-section">
+                    <strong>⚡ 执行结果 (仿真):</strong>
+                    <ul>
+                        {% for step in turn.metadata.execution_result.executed_steps %}
+                        <li>{{ step.output or step.action }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                {# Render memory write section #}
+                {% if turn.metadata.get('memory_write') and turn.metadata.memory_write | length > 0 %}
+                <div class="memory-section">
+                    <strong>📝 记忆更新:</strong>
+                    <ul>
+                        {% for mem in turn.metadata.memory_write %}
+                        <li><code>{{ mem.key }}</code>: {{ mem.value }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            {% endif %}
         </div>
         {% endfor %}
         {% else %}
@@ -2174,7 +2220,9 @@ def create_app(memory_path: Optional[str] = None) -> 'Flask':
     @app.route('/')
     def index():
         sessions = []
-        for session_id in store.list_sessions():
+        # Use list_sessions_with_metadata to get sessions sorted by creation time
+        for session_info in store.list_sessions_with_metadata():
+            session_id = session_info['session_id']
             turns = store.get_all_turns(session_id)
             events = store.get_events(session_id)
             last_turn = turns[-1] if turns else None
@@ -2183,6 +2231,7 @@ def create_app(memory_path: Optional[str] = None) -> 'Flask':
                 'id': session_id,
                 'turns': len(turns),
                 'events': len(events),
+                'created_at': format_timestamp(session_info.get('created_at', '')) if session_info.get('created_at') else 'N/A',
                 'last_update': format_timestamp(last_turn.ts) if last_turn else 'N/A'
             })
 
@@ -2245,7 +2294,8 @@ def create_app(memory_path: Optional[str] = None) -> 'Flask':
                 'turn_id': t.turn_id,
                 'ts': format_timestamp(t.ts),
                 'speaker': t.speaker,
-                'text': t.text
+                'text': t.text,
+                'metadata': t.metadata  # Include metadata for structured rendering
             })
 
         # Get provider info

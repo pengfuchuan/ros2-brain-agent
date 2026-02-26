@@ -277,6 +277,40 @@ class FileSystemMemoryStore(MemoryStore):
         if not events_path.exists():
             events_path.touch()
 
+        # Create metadata with creation timestamp
+        metadata_path = session_path / "metadata.json"
+        if not metadata_path.exists():
+            from datetime import datetime
+            metadata = {
+                "session_id": session_id,
+                "created_at": datetime.now().isoformat()
+            }
+            self._write_json(metadata_path, metadata)
+
+    def get_session_metadata(self, session_id: str) -> Dict[str, Any]:
+        """Get metadata for a session."""
+        metadata_path = self._get_session_path(session_id) / "metadata.json"
+        return self._read_json(metadata_path)
+
+    def list_sessions_with_metadata(self) -> List[Dict[str, Any]]:
+        """List all sessions with their metadata."""
+        if not self.sessions_path.exists():
+            return []
+
+        sessions = []
+        for item in self.sessions_path.iterdir():
+            if item.is_dir():
+                session_id = item.name
+                metadata = self.get_session_metadata(session_id)
+                sessions.append({
+                    "session_id": session_id,
+                    "created_at": metadata.get("created_at", "")
+                })
+
+        # Sort by created_at descending (newest first)
+        sessions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return sessions
+
     def list_sessions(self) -> List[str]:
         """List all session IDs."""
         if not self.sessions_path.exists():
