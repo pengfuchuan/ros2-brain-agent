@@ -71,3 +71,6 @@ Thumbs.db
 # Temporary test files
 /tmp/
 *.tmp
+
+
+CLAUDE.local.md
