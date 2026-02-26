@@ -1012,6 +1012,85 @@ BASE_TEMPLATE = """
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         }
 
+        /* New Session Modal Styles */
+        .new-session-modal {
+            max-width: 440px;
+        }
+        .new-session-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            border-radius: 16px 16px 0 0;
+            padding: 24px;
+        }
+        .new-session-header .modal-title {
+            color: white;
+        }
+        .new-session-header .modal-subtitle {
+            color: rgba(255, 255, 255, 0.8);
+        }
+        .new-session-icon {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .new-session-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+        .new-session-body {
+            padding: 24px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .input-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+        .modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.2s ease;
+            box-sizing: border-box;
+        }
+        .modal-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+        .modal-input::placeholder {
+            color: #aaa;
+        }
+        .input-hint {
+            font-size: 12px;
+            color: #888;
+            margin: 4px 0 0 0;
+        }
+        .new-session-footer {
+            padding: 16px 24px;
+            background: #f8f9fa;
+            border-radius: 0 0 16px 16px;
+        }
+        .btn-icon {
+            font-size: 16px;
+            margin-right: 6px;
+        }
+        .btn-confirm.primary {
+            display: flex;
+            align-items: center;
+        }
+
         /* Toast Notification */
         .toast-container {
             position: fixed;
@@ -1113,6 +1192,37 @@ BASE_TEMPLATE = """
         </div>
     </div>
 
+    <!-- New Session Modal -->
+    <div class="modal-overlay" id="newSessionModal">
+        <div class="modal new-session-modal">
+            <div class="modal-header new-session-header">
+                <div class="modal-icon new-session-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                </div>
+                <div class="modal-title-area">
+                    <h3 class="modal-title">Create New Session</h3>
+                    <p class="modal-subtitle">Start a fresh conversation</p>
+                </div>
+            </div>
+            <div class="modal-body new-session-body">
+                <div class="input-group">
+                    <label class="input-label" for="newSessionInput">Session Name</label>
+                    <input type="text" class="modal-input" id="newSessionInput" placeholder="Enter session name...">
+                    <p class="input-hint">Leave empty to auto-generate a name</p>
+                </div>
+            </div>
+            <div class="modal-footer new-session-footer">
+                <button class="btn-cancel" id="newSessionCancel">Cancel</button>
+                <button class="btn-confirm primary" id="newSessionConfirm">
+                    <span class="btn-icon">+</span>
+                    Create Session
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
     // Toast Notification System
     function showToast(message, type = 'info') {
@@ -1196,6 +1306,65 @@ BASE_TEMPLATE = """
         if (modalCallback) modalCallback();
         hideModal();
     });
+
+    // New Session Modal System
+    function showNewSessionModal() {
+        const modal = document.getElementById('newSessionModal');
+        const input = document.getElementById('newSessionInput');
+        modal.classList.add('active');
+        // Auto-fill default session name
+        input.value = 'session_' + Date.now();
+        setTimeout(() => {
+            input.focus();
+            input.select(); // Select all text for easy editing
+        }, 100);
+    }
+
+    function hideNewSessionModal() {
+        document.getElementById('newSessionModal').classList.remove('active');
+    }
+
+    // New Session Modal event listeners
+    document.getElementById('newSessionCancel').addEventListener('click', hideNewSessionModal);
+    document.getElementById('newSessionModal').addEventListener('click', function(e) {
+        if (e.target === this) hideNewSessionModal();
+    });
+    document.getElementById('newSessionInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            document.getElementById('newSessionConfirm').click();
+        }
+    });
+
+    // Create new session logic
+    async function createNewSession() {
+        const input = document.getElementById('newSessionInput');
+        let sessionName = input.value.trim();
+
+        // Auto-generate name if empty
+        if (!sessionName) {
+            sessionName = 'session_' + Date.now();
+        }
+
+        try {
+            const response = await fetch('/api/session/create', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: sessionName})
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                hideNewSessionModal();
+                window.location.href = '/chat/' + data.session_id;
+            } else {
+                showToast('Failed to create session: ' + data.error, 'error');
+            }
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        }
+    }
+
+    document.getElementById('newSessionConfirm').addEventListener('click', createNewSession);
     </script>
 </body>
 </html>
@@ -1956,25 +2125,7 @@ async function sendMessage(event) {
 }
 
 async function newSession() {
-    const sessionName = prompt('Enter new session name:', 'session_' + Date.now());
-    if (!sessionName) return;
-
-    try {
-        const response = await fetch('/api/session/create', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({session_id: sessionName})
-        });
-
-        const data = await response.json();
-        if (data.success) {
-            window.location.href = '/chat/' + data.session_id;
-        } else {
-            alert('Failed to create session: ' + data.error);
-        }
-    } catch (err) {
-        alert('Error: ' + err.message);
-    }
+    showNewSessionModal();
 }
 
 // Scroll to bottom on load
