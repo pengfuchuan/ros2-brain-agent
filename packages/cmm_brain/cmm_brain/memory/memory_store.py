@@ -383,6 +383,19 @@ class MemoryStore(ABC):
         """
         pass
 
+    @abstractmethod
+    def delete_session(self, session_id: str) -> bool:
+        """
+        Delete a session and all its data.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            True if deleted, False if not found
+        """
+        pass
+
     # ===================
     # Utility Methods
     # ===================

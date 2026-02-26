@@ -868,6 +868,207 @@ BASE_TEMPLATE = """
             font-size: 13px;
             margin-top: 40px;
         }
+
+        /* Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            animation: fadeIn 0.2s ease;
+        }
+        .modal-overlay.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 420px;
+            width: 90%;
+            animation: slideUp 0.3s ease;
+            overflow: hidden;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .modal-header {
+            padding: 24px 24px 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .modal-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            flex-shrink: 0;
+        }
+        .modal-icon.warning {
+            background: #fef3cd;
+            color: #856404;
+        }
+        .modal-icon.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .modal-icon.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .modal-icon.info {
+            background: #cce5ff;
+            color: #004085;
+        }
+        .modal-title-area {
+            flex: 1;
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin: 0;
+        }
+        .modal-subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-top: 4px;
+        }
+        .modal-body {
+            padding: 0 24px 24px;
+        }
+        .modal-message {
+            font-size: 15px;
+            color: #444;
+            line-height: 1.6;
+        }
+        .modal-footer {
+            padding: 16px 24px;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        .btn-cancel {
+            background: #fff;
+            color: #666;
+            border: 1px solid #ddd;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-cancel:hover {
+            background: #f0f0f0;
+            border-color: #ccc;
+        }
+        .btn-confirm {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+        .btn-confirm.danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #dc3545 100%);
+            color: white;
+        }
+        .btn-confirm.danger:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(220, 53, 69, 0.4);
+        }
+        .btn-confirm.success {
+            background: linear-gradient(135deg, #51cf66 0%, #28a745 100%);
+            color: white;
+        }
+        .btn-confirm.success:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+        }
+        .btn-confirm.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-confirm.primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        /* Toast Notification */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            padding: 16px 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideInRight 0.3s ease;
+            min-width: 300px;
+            max-width: 400px;
+        }
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .toast.success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border-left: 4px solid #28a745;
+        }
+        .toast.error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            border-left: 4px solid #dc3545;
+        }
+        .toast.info {
+            background: linear-gradient(135deg, #cce5ff 0%, #b8daff 100%);
+            border-left: 4px solid #007bff;
+        }
+        .toast-icon {
+            font-size: 20px;
+        }
+        .toast-message {
+            flex: 1;
+            font-size: 14px;
+            color: #333;
+        }
+        .toast-close {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #999;
+            padding: 0;
+            line-height: 1;
+        }
+        .toast-close:hover {
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -888,6 +1089,114 @@ BASE_TEMPLATE = """
     <footer>
         ROS2 Brain Agent &copy; 2026 | <a href="https://github.com/iampfc/ros2-brain-agent">GitHub</a>
     </footer>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal Overlay -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-icon warning" id="modalIcon">⚠️</div>
+                <div class="modal-title-area">
+                    <h3 class="modal-title" id="modalTitle">确认操作</h3>
+                    <p class="modal-subtitle" id="modalSubtitle"></p>
+                </div>
+            </div>
+            <div class="modal-body">
+                <p class="modal-message" id="modalMessage">您确定要执行此操作吗？</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="modalCancel">取消</button>
+                <button class="btn-confirm danger" id="modalConfirm">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Toast Notification System
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+
+        const icons = {
+            success: '✓',
+            error: '✕',
+            info: 'ℹ'
+        };
+
+        toast.innerHTML = `
+            <span class="toast-icon">${icons[type] || 'ℹ'}</span>
+            <span class="toast-message">${message}</span>
+            <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+        `;
+
+        container.appendChild(toast);
+
+        // Auto remove after 3 seconds
+        setTimeout(() => {
+            toast.style.animation = 'slideInRight 0.3s ease reverse';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    // Modal System
+    let modalCallback = null;
+
+    function showModal(options) {
+        const overlay = document.getElementById('modalOverlay');
+        const icon = document.getElementById('modalIcon');
+        const title = document.getElementById('modalTitle');
+        const subtitle = document.getElementById('modalSubtitle');
+        const message = document.getElementById('modalMessage');
+        const confirmBtn = document.getElementById('modalConfirm');
+        const cancelBtn = document.getElementById('modalCancel');
+
+        // Set icon
+        const iconMap = {
+            warning: { emoji: '⚠️', class: 'warning' },
+            danger: { emoji: '🗑️', class: 'warning' },
+            success: { emoji: '✓', class: 'success' },
+            error: { emoji: '✕', class: 'error' },
+            info: { emoji: 'ℹ', class: 'info' }
+        };
+        const iconData = iconMap[options.type] || iconMap.info;
+        icon.textContent = options.icon || iconData.emoji;
+        icon.className = `modal-icon ${iconData.class}`;
+
+        // Set content
+        title.textContent = options.title || '确认操作';
+        subtitle.textContent = options.subtitle || '';
+        subtitle.style.display = options.subtitle ? 'block' : 'none';
+        message.textContent = options.message || '您确定要执行此操作吗？';
+
+        // Set button style
+        confirmBtn.className = `btn-confirm ${options.confirmType || 'danger'}`;
+        confirmBtn.textContent = options.confirmText || '确定';
+
+        // Store callback
+        modalCallback = options.onConfirm || null;
+
+        // Show modal
+        overlay.classList.add('active');
+    }
+
+    function hideModal() {
+        document.getElementById('modalOverlay').classList.remove('active');
+        modalCallback = null;
+    }
+
+    // Modal event listeners
+    document.getElementById('modalCancel').addEventListener('click', hideModal);
+    document.getElementById('modalOverlay').addEventListener('click', function(e) {
+        if (e.target === this) hideModal();
+    });
+    document.getElementById('modalConfirm').addEventListener('click', function() {
+        if (modalCallback) modalCallback();
+        hideModal();
+    });
+    </script>
 </body>
 </html>
 """
@@ -912,7 +1221,7 @@ SESSIONS_TEMPLATE = """
             </thead>
             <tbody>
                 {% for session in sessions %}
-                <tr>
+                <tr id="session-row-{{ session.id }}">
                     <td><code>{{ session.id }}</code></td>
                     <td>{{ session.turns }}</td>
                     <td>{{ session.events }}</td>
@@ -922,6 +1231,7 @@ SESSIONS_TEMPLATE = """
                         <a href="/session/{{ session.id }}" class="btn btn-primary btn-sm">View</a>
                         <a href="/session/{{ session.id }}/analyze" class="btn btn-primary btn-sm">Analyze</a>
                         <a href="/api/session/{{ session.id }}/export" class="btn btn-primary btn-sm">Export</a>
+                        <button onclick="confirmDelete('{{ session.id }}')" class="btn btn-danger btn-sm">Delete</button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -937,6 +1247,18 @@ SESSIONS_TEMPLATE = """
     </div>
 </div>
 
+<style>
+.btn-danger {
+    background: linear-gradient(135deg, #ff6b6b 0%, #dc3545 100%);
+    color: white;
+    border: none;
+}
+.btn-danger:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+}
+</style>
+
 <script>
 document.getElementById('searchInput').addEventListener('input', function(e) {
     const search = e.target.value.toLowerCase();
@@ -946,6 +1268,49 @@ document.getElementById('searchInput').addEventListener('input', function(e) {
         row.style.display = text.includes(search) ? '' : 'none';
     });
 });
+
+function confirmDelete(sessionId) {
+    showModal({
+        type: 'danger',
+        icon: '🗑️',
+        title: '删除会话',
+        subtitle: 'Session: ' + sessionId,
+        message: '确定要删除此会话吗？此操作不可撤销，所有对话记录和事件将被永久删除。',
+        confirmText: '确认删除',
+        confirmType: 'danger',
+        onConfirm: function() {
+            deleteSession(sessionId);
+        }
+    });
+}
+
+function deleteSession(sessionId) {
+    fetch('/api/session/' + sessionId, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Remove row from table with animation
+            const row = document.getElementById('session-row-' + sessionId);
+            if (row) {
+                row.style.transition = 'all 0.3s ease';
+                row.style.opacity = '0';
+                row.style.transform = 'translateX(-20px)';
+                setTimeout(() => row.remove(), 300);
+            }
+            showToast('会话已成功删除', 'success');
+        } else {
+            showToast('删除失败: ' + (data.error || '未知错误'), 'error');
+        }
+    })
+    .catch(error => {
+        showToast('删除出错: ' + error.message, 'error');
+    });
+}
 </script>
 """
 
@@ -2270,6 +2635,21 @@ def create_app(memory_path: Optional[str] = None) -> 'Flask':
         )
         response.headers['Content-Disposition'] = f'attachment; filename={session_id}_export.json'
         return response
+
+    @app.route('/api/session/<session_id>', methods=['DELETE'])
+    def api_delete_session(session_id):
+        """Delete a session and all its data."""
+        if not store.session_exists(session_id):
+            return jsonify({'success': False, 'error': 'Session not found'}), 404
+
+        try:
+            deleted = store.delete_session(session_id)
+            if deleted:
+                return jsonify({'success': True, 'message': f'Session {session_id} deleted'})
+            else:
+                return jsonify({'success': False, 'error': 'Failed to delete session'}), 500
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
 
     return app
 

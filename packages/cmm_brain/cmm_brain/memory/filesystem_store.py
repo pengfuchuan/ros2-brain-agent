@@ -318,3 +318,7 @@ class FileSystemMemoryStore(MemoryStore):
             shutil.rmtree(session_path)
             return True
         return False
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session and all its data (alias for clear_session)."""
+        return self.clear_session(session_id)
